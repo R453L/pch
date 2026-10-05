@@ -1,9 +1,9 @@
 name: hourly-post
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '34 */3 * * *'
+    - cron: '0 */3 * * *'   # 00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -30,6 +30,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Random delay to avoid same-time patterns
+        shell: bash
+        run: |
+          RANDOM_DELAY=$((RANDOM % 20))
+          echo "Waiting $RANDOM_DELAY minutes before posting..."
+          sleep $((RANDOM_DELAY * 60))
+
       - name: Generate and send post
         run: python bot.py
         env:
@@ -41,16 +48,13 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
 
-      - name: Save topic history and push updates
+      - name: Save topic history
         shell: bash
         run: |
           set -e
-
           git config --global user.name "pch-bot"
           git config --global user.email "pch-bot@users.noreply.github.com"
-
           git add history.json
-
           if ! git diff --cached --quiet; then
             git commit -m "bot: update history [skip ci]"
             git push origin HEAD:${GITHUB_REF_NAME:-main}
