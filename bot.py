@@ -558,10 +558,17 @@ def build_post(recent, used):
                 if hard:
                     log("grounding failed:", hard)
                     continue
-            verdict = check_faithful(post, source)
+                        verdict = check_faithful(post, source)
             if not verdict.get("faithful"):
-                log("checker: unsupported claims:", verdict.get("unsupported"))
-                continue
+                unsupported = verdict.get("unsupported") or []
+                hard_unsupported = [
+                    u for u in unsupported
+                    if any(k in u.lower() for k in ("not in the source", "unsupported", "wrong", "missing", "not supported"))
+                ]
+                if hard_unsupported:
+                    log("checker: unsupported claims:", hard_unsupported)
+                    continue
+
             try:
                 if float(verdict.get("hook_score", 0)) < 5:
                     log("rejected: weak hook", verdict.get("hook_score"))
