@@ -42,21 +42,6 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
 
-      - name: Calculate and Update Next Random Cron
-        shell: bash
-        run: |
-          set -e
-          
-          RANDOM_MINUTE=$(( RANDOM % 60 ))
-          NEW_CRON="$RANDOM_MINUTE */3 * * *"
-          echo "Next calculated cron interval: $NEW_CRON"
-          
-          WORKFLOW_FILE=".github/workflows/hourly.yml"
-          
-          sed -i "s/- cron: '.*'/- cron: '$NEW_CRON'/" "$WORKFLOW_FILE"
-          
-          git add "$WORKFLOW_FILE"
-
       - name: Save topic history and push updates
         shell: bash
         run: |
@@ -68,7 +53,7 @@ jobs:
           git add history.json
 
           if ! git diff --cached --quiet; then
-            git commit -m "bot: update history and random cron schedule [skip ci]"
+            git commit -m "bot: update history [skip ci]"
             git push origin HEAD:${GITHUB_REF_NAME:-main}
           else
             echo "No changes to commit."
