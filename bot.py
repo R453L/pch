@@ -7,6 +7,7 @@ import random
 import re
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -28,6 +29,16 @@ CHECKER_MODELS = _models("CHECKER_MODEL", "openai")
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "flux")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
 WATERMARK = os.environ.get("WATERMARK", "AI-generated illustration")
+
+# Facebook Page posting (optional: runs only when both values are set)
+FB_PAGE_ID = os.environ.get("FB_PAGE_ID", "").strip()
+FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN", "").strip()
+FB_VERSION = os.environ.get("FB_GRAPH_VERSION", "v26.0").strip()
+FB_DISCLOSURE = os.environ.get("FB_DISCLOSURE", "Image: AI-generated illustration.")
+try:
+    FB_EVERY_HOURS = max(1, int(os.environ.get("FB_EVERY_HOURS", "1") or 1))
+except ValueError:
+    FB_EVERY_HOURS = 1
 
 HERE = Path(__file__).parent
 HISTORY = HERE / "history.json"
@@ -61,6 +72,20 @@ BANNED = (
     "McDonald's, Apple, Amazon"
 )
 
+CATEGORY_KEYWORDS = [
+    ["postage rate", "fare increase", "ticket price", "coin introduced", "price controls", "rationing prices"],
+    ["minimum wage law", "wage law", "company town scrip", "child labor law wages", "apprenticeship wages"],
+    ["company founded", "department store founded", "mail-order catalog", "chain store opened", "bank founded"],
+    ["banknote introduced", "central bank established", "gold standard abandoned", "decimalisation currency", "coin demonetised", "savings bank founded"],
+    ["cheque tax", "traveller's cheque", "hire purchase", "layaway", "money order history", "cash register history"],
+    ["department store history", "general store", "supermarket history", "market hall", "five and dime store"],
+    ["advertising campaign price", "coupon history", "catalog retailer", "price promotion history"],
+    ["tax act", "stamp duty", "window tax", "tariff act", "sales tax introduced", "excise tax"],
+    ["barter economy", "token coinage", "company scrip", "tally stick", "postal order", "pawnbroker history"],
+    ["milkman", "telegram money order", "farthing coin", "penny post", "telephone operator", "lamplighter"],
+]
+WIKI_COUNTRIES = ["United States", "United Kingdom", "Canada", "Australia", "France", "Spain", "Germany", "Japan"]
+
 WRITER_SYSTEM = f"""You are an expert Economic & Business Historian, fact checker and viral Facebook history copywriter.
 You create ORIGINAL posts about the history of money, prices, wages, jobs, banks, companies and everyday economic life.
 
@@ -69,7 +94,14 @@ HOOK RULE (most important after accuracy):
 - NEVER pick a general trend or broad summary ("retail grew", "banking expanded"). If the post cannot be summed up as one jaw-dropping sentence, choose a different fact instead.
 - The reader must think "wait, really?" within one second.
 
-You do NOT have web search. Use ONLY facts you know with HIGH confidence from many reliable sources (central banks, national archives, government records, museums, encyclopedias). If you are not sure about an exact number, date or country, choose a different fact. Never put citation markers like [1] or URLs in any text field.
+SOURCE-GROUNDING RULES (absolute):
+- You receive SOURCE TEXT from Wikipedia. Use ONLY facts that are stated in the SOURCE TEXT. Never add a number, date, amount, name, cause or "first/only/most" claim that the SOURCE TEXT does not state. Use no outside knowledge for facts.
+- Write every number, date and amount EXACTLY as it appears in the SOURCE TEXT (if the source says "two cents", write "two cents"). Do no arithmetic and no conversions.
+- Every proper name (law, institution, company, person, place) in your caption must appear in the SOURCE TEXT.
+- Pick the single most surprising fact with a number and a year that the SOURCE TEXT clearly states and that is about money, prices, wages, jobs, banks, taxes, trade or business. If the SOURCE TEXT has no such fact, return {{"skip": true, "reason": "..."}}.
+- "evidence": 3 to 6 objects {{"claim": "...", "quote": "..."}} where quote is copied WORD FOR WORD from the SOURCE TEXT (6 to 30 words). Together they must cover EVERY number, year and name used in the headline and in the REVEAL paragraph.
+- The SCENE paragraph must start with "Picture" or "Imagine" and describe atmosphere only, with no numbers, dates or names that are not in the SOURCE TEXT.
+- Never put citation markers like [1] or URLs in any text field.
 
 FACT TYPE RULE (very important):
 - Use ONLY discrete, officially documented facts: a law and its date, an official or fixed price/rate set by a government or company (postage rate, minimum wage, tax rate, official fare, a famous advertised price), a founding date and founder, an invention and its year, a documented record or event.
@@ -81,7 +113,6 @@ FACT RULES:
 - Every number needs a year and a country. Never present inflation-adjusted figures as original prices.
 - For "first ever" claims, say "one of the earliest" if disputed. Company origin myths must be treated carefully.
 - Prefer WELL-KNOWN, widely documented facts (famous price comparisons, well-known wage figures, famous founding stories, documented laws, famous inventions of payment). Approximate numbers are fine if you write "about" or "around".
-- The draw is only a STARTING DIRECTION. If no strong fact fits it exactly, move to the nearest era, country or category (prefer USA or UK) and use a strong fact there. You MUST return a post. Return {{"skip": true}} only as an absolute last resort.
 - Never choose these topics: {BANNED}.
 
 IMAGE RULES:
@@ -97,39 +128,38 @@ HEADLINE RULES:
 - subhook: 3-6 words, ALL CAPS, truthful (e.g. "THE REASON IS WILD").
 - The headline must be truthful and supported by the fact.
 
-CAPTION RULES (storytelling, the reader must feel they cannot stop reading):
-- Length: 200-280 words. Natural American English, conversational, vivid, documentary, slightly mysterious.
-- Structure, in 5 or 6 short paragraphs separated by blank lines:
-  1. HOOK: one or two sentences with a surprising number or a direct question that opens a curiosity gap. Never a textbook opening like "In late 19th-century...".
-  2. SCENE: put the reader inside the period. What did ordinary people see, pay, earn or do? Use concrete everyday details.
-  3. TENSION: why was this a problem, a gamble or a strange rule? Tease the twist without giving it away yet.
-  4. REVEAL: the surprising fact, with exact year, country and numbers.
-  5. AFTERMATH: what changed afterwards and why it matters.
-  6. CLOSER: one thought-provoking sentence that links to today, ending with a short question that invites comments.
-- Use short, punchy sentences mixed with longer ones. Build suspense paragraph by paragraph so people read to the end.
+CAPTION RULES (viral storytelling written to a high SEO-style quality bar):
+- Length: 200-280 words. Natural American English, conversational, vivid, documentary.
+- Structure, 5 or 6 short paragraphs separated by blank lines:
+  1. HOOK + DIRECT ANSWER (first sentence under 120 characters, because Facebook cuts the post after about two lines): state the surprising fact with its number and year right away, or ask a sharp question and answer it in the next sentence. A skimmer who reads only this paragraph must still learn the core fact and want the rest.
+  2. SCENE: put the reader inside the period with concrete everyday details (what people saw, paid, earned, did).
+  3. TENSION: why this was a problem, a gamble or a strange rule. Keep the WHY and the TWIST for later paragraphs (the "what" is already out, the "why" creates the cliffhanger).
+  4. REVEAL: the surprising reason or twist, with exact year, country and numbers.
+  5. AFTERMATH: what changed afterwards and the real-world consequence.
+  6. CLOSER: one thought-provoking line linking to today, then ONE short question that invites comments.
+- INFORMATION GAIN: include at least one angle most posts on this topic skip (the hidden reason, an unexpected consequence, a surprising comparison). Do not write the generic version of the story.
+- STAT + SOURCE + IMPLICATION: include at least one sentence with a specific number or date, the kind of record it comes from, but only if the SOURCE TEXT mentions that record, and what it meant in practice. Never invent a statistic, quote or source; if unsure, drop the number.
+- ENTITIES: name as many specific real entities as the SOURCE TEXT provides (official names of laws, institutions, companies, places, currencies), at least 6 when available. No vague phrases like "a big bank" when the SOURCE TEXT gives the precise name. Never name an entity that is not in the SOURCE TEXT.
+- Optional "THEN vs NOW" line (for example "Then: ... Now: ...") only when both numbers appear in the SOURCE TEXT. Never convert old prices with inflation.
+- Short punchy sentences mixed with longer ones. Build suspense paragraph by paragraph so people read to the end. No keyword stuffing.
 - Do not repeat the headline word-for-word. No filler. No unsupported phrases like "Experts believe" or "Everyone used".
-- Use precise wording ("In parts of Britain...", "By the 1920s...", "According to surviving records...").
-- Plain text only, no emojis, no hashtags, no markdown.
+- Plain text only. NO em dashes (use commas, periods or colons), no emojis, no markdown, no hashtags inside the text.
 
 TOPIC RULE:
 - The story must be clearly about money, prices, wages, jobs, banks, taxes, trade or business history.
 - NEVER choose topics about executions, crime and punishment, violence, war atrocities, disasters, tragedies or anything graphic or sensitive.
 
 Return ONLY one JSON object, no markdown fences, with keys:
-skip, topic, fact, year, country, headline_lines (array), subhook, image_prompt, caption, sources (array of 2-4 source types/names), confidence (Confirmed|Probable|Disputed)."""
+skip, topic, fact, year, country, headline_lines (array), subhook, image_prompt, caption, hashtags (array of exactly 2 relevant topical hashtags like "#MoneyHistory"), evidence (array described above)."""
 
-CHECKER_SYSTEM = """You are a strict, skeptical history fact checker. You receive a draft social post.
-Check ONLY the core factual claim in the headline and fact (dates, numbers, country, names). Ignore the image idea, style, framing and tone. Accept official, discrete facts that you recognize as well documented.
-You cannot browse the web and the writer cannot attach documents, so do NOT demand citations. Judge from your own knowledge of well-documented history.
-- "confirmed": you clearly know the claim to be correct.
-- "probable": broadly correct, one minor detail slightly imprecise.
-- "disputed": contradicts what you know, or is a known myth.
-- "unverifiable": you cannot recall any reliable basis for it.
-Approximate figures are fine when the post says "about" or "around".
+CHECKER_SYSTEM = """You are a strict fact checker. You receive SOURCE TEXT (from Wikipedia) and a DRAFT social post.
+Decide whether every factual claim in the draft's headline and caption is supported by the SOURCE TEXT.
+Flag: claims not in the source, wrong cause and effect, exaggeration, "first/only/most" claims the source does not make, anachronisms, numbers attached to the wrong thing.
+Ignore the atmosphere of the paragraph that starts with "Picture" or "Imagine", but flag any number, date or name there that is not in the SOURCE TEXT.
+Do NOT use outside knowledge to approve a claim. If the source does not say it, it is unsupported.
 Return ONLY one JSON object, no markdown fences:
-{"verdict": "confirmed|probable|disputed|unverifiable", "hook_score": 1-10, "issues": ["..."], "fixed_headline_lines": null or array, "fixed_caption": null or string}
-hook_score rates how strongly the headline would stop a Facebook scroller (10 = jaw-dropping specific number and contrast, 1 = vague textbook summary).
-Use fixed_* only when a small correction makes the post accurate. fixed_caption must be the FULL caption with the same length, paragraphs and storytelling style, with only the wrong detail corrected. Never shorten it. Use "disputed" or "unverifiable" if the core fact is doubtful."""
+{"faithful": true or false, "unsupported": ["..."], "hook_score": 1-10}
+hook_score rates how strongly the headline would stop a Facebook scroller (10 = jaw-dropping specific number and contrast, 1 = vague textbook summary)."""
 
 STYLE_SUFFIX = (
     ", award-winning documentary photograph, shot on 35mm film, 50mm lens, sharp focus, highly detailed, "
@@ -223,21 +253,160 @@ def chat_json(system, user, models, temperature, tries=2):
     raise RuntimeError(f"no model returned valid JSON: {last}")
 
 
-def write_post(draw, recent):
+# ---- free evidence: Wikipedia (no API key, no cost)
+WIKI_API = "https://en.wikipedia.org/w/api.php"
+WIKI_UA = os.environ.get("WIKI_UA", "PocketChangeHistoryBot/1.0 (educational money-history page; GitHub Actions)")
+SHOW_SOURCE = os.environ.get("SHOW_SOURCE", "1") == "1"
+OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
+OPENROUTER_MODELS = _models("OPENROUTER_MODEL", "")
+BANNED_TITLE = re.compile(r"vending|coca-cola|model t\b|monopoly|mcdonald|^apple\b|amazon|automated teller|^credit card$", re.I)
+CUT_HEADINGS = re.compile(r"\n=+ *(References|See also|External links|Notes|Further reading|Bibliography|Footnotes|Sources|Citations) *=+", re.I)
+YEAR_RE = re.compile(r"\b(?:1[5-9]\d\d|20\d\d)\b")
+NUM_RE = re.compile(
+    r"([$\u00a3\u20ac])?\s?(\d[\d,]*(?:\.\d+)?)(s)?\b\s?(cents?|dollars?|pounds?|pence|pennies|shillings?|francs?|marks?|yen|percent|%)?",
+    re.I,
+)
+
+
+def wiki_get(params):
+    p = {"format": "json", "formatversion": "2", **params}
+    r = requests.get(WIKI_API, params=p, headers={"User-Agent": WIKI_UA}, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def wiki_search(query, limit=10):
+    data = wiki_get({"action": "query", "list": "search", "srsearch": query, "srlimit": limit, "srnamespace": 0})
+    return [x["title"] for x in data.get("query", {}).get("search", [])]
+
+
+def wiki_extract(title):
+    data = wiki_get({"action": "query", "prop": "extracts", "explaintext": 1, "redirects": 1, "titles": title})
+    pages = data.get("query", {}).get("pages", [])
+    if not pages or pages[0].get("missing"):
+        return ""
+    text = pages[0].get("extract", "") or ""
+    m = CUT_HEADINGS.search(text)
+    if m:
+        text = text[: m.start()]
+    return text.strip()[:14000]
+
+
+def pick_source(used):
+    """Random money-history search -> a real Wikipedia article we have not used yet."""
+    cat = random.randrange(len(CATEGORIES))
+    query = f"{random.choice(CATEGORY_KEYWORDS[cat])} {random.choices(WIKI_COUNTRIES, COUNTRY_WEIGHTS)[0]} {random.choice(ERAS)}"
+    log("wikipedia search:", query)
+    titles = [
+        t
+        for t in wiki_search(query)
+        if not re.match(r"(List of|Timeline of|Index of|Outline of)", t) and not BANNED_TITLE.search(t) and t not in used
+    ][:5]
+    random.shuffle(titles)
+    for t in titles:
+        text = wiki_extract(t)
+        if len(text) >= 1500 and len(YEAR_RE.findall(text)) >= 3:
+            return t, text
+        used.add(t)
+    raise ValueError(f"no usable article for query {query!r}")
+
+
+def _norm(s):
+    s = s.lower()
+    for a, b in (("\u2019", "'"), ("\u2018", "'"), ("\u201c", '"'), ("\u201d", '"'), ("\u2013", "-"), ("\u2014", "-")):
+        s = s.replace(a, b)
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9$\u00a3\u20ac%.' -]", " ", s)).strip()
+
+
+def quote_supported(quote, src_norm, src_tokens):
+    q = _norm(quote)
+    qt = q.split()
+    if len(qt) < 4:
+        return False
+    if q in src_norm:
+        return True
+    qset, n = set(qt), len(qt)
+    for i in range(0, max(1, len(src_tokens) - n + 1)):
+        if len(qset & set(src_tokens[i : i + n + 3])) / len(qset) >= 0.9:
+            return True
+    return False
+
+
+def numbers_in(text, factual_only):
+    out = set()
+    for m in NUM_RE.finditer(text):
+        cur, num, decade, unit = m.group(1), m.group(2), m.group(3), m.group(4)
+        n = num.replace(",", "").rstrip(".")
+        if not n:
+            continue
+        if not factual_only:
+            out.add(n)
+            continue
+        if decade:  # "1930s" style decades are not exact claims
+            continue
+        try:
+            val = float(n)
+        except ValueError:
+            continue
+        if cur or unit or YEAR_RE.fullmatch(n) or val >= 100:
+            out.add(n)
+    return out
+
+
+def verify_grounding(post, source):
+    """Deterministic check: every quote must be in the source and every key number must come from it."""
+    problems = []
+    evidence = post.get("evidence")
+    if not isinstance(evidence, list) or len(evidence) < 2:
+        return ["evidence missing"]
+    src_norm = _norm(source)
+    src_tokens = src_norm.split()
+    for item in evidence:
+        quote = item.get("quote", "") if isinstance(item, dict) else str(item)
+        if not quote_supported(quote, src_norm, src_tokens):
+            problems.append(f"quote not found in source: {quote[:70]!r}")
+    text = " ".join(post["headline_lines"]) + " " + post["caption"]
+    missing = numbers_in(text, True) - numbers_in(source, False)
+    if missing:
+        problems.append(f"numbers not in source: {sorted(missing)}")
+    return problems
+
+
+def write_post(title, source, recent):
     user = (
-        "RANDOM DRAW (follow it):\n"
-        f"- Category: {draw['category']}\n- Era: {draw['era']}\n- Country: {draw['country']}\n- Angle: {draw['angle']}\n\n"
-        "Find ONE specific, well-documented fact that fits this draw. "
-        "If nothing fits, you may shift the country or era slightly, but stay close to the draw.\n"
+        f"SOURCE ARTICLE TITLE: {title}\n\nSOURCE TEXT:\n{source}\n\n"
         f"Do NOT repeat or closely resemble any of these recent topics: {json.dumps(recent)}\n"
-        "Return the JSON object now."
+        "Write the post using ONLY the SOURCE TEXT. Return the JSON object now."
     )
-    return chat_json(WRITER_SYSTEM, user, WRITER_MODELS, 0.9)
+    return chat_json(WRITER_SYSTEM, user, WRITER_MODELS, 0.7)
 
 
-def check_post(post):
-    draft = {k: post.get(k) for k in ("topic", "fact", "year", "country", "headline_lines", "caption")}
-    return chat_json(CHECKER_SYSTEM, json.dumps(draft, ensure_ascii=False), CHECKER_MODELS, 0.2)
+def check_faithful(post, source):
+    draft = {"headline_lines": post["headline_lines"], "caption": post["caption"]}
+    user = f"SOURCE TEXT:\n{source}\n\nDRAFT:\n{json.dumps(draft, ensure_ascii=False)}"
+    return chat_json(CHECKER_SYSTEM, user, CHECKER_MODELS, 0.1)
+
+
+def second_opinion(post, source):
+    """Optional independent check with a free OpenRouter model (different model family = fewer shared mistakes)."""
+    if not (OPENROUTER_KEY and OPENROUTER_MODELS):
+        return None
+    draft = {"headline_lines": post["headline_lines"], "caption": post["caption"]}
+    user = f"SOURCE TEXT:\n{source}\n\nDRAFT:\n{json.dumps(draft, ensure_ascii=False)}"
+    for model in OPENROUTER_MODELS:
+        try:
+            r = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"},
+                json={"model": model, "temperature": 0.1,
+                      "messages": [{"role": "system", "content": CHECKER_SYSTEM}, {"role": "user", "content": user}]},
+                timeout=120,
+            )
+            r.raise_for_status()
+            return extract_json(r.json()["choices"][0]["message"]["content"])
+        except Exception as e:  # noqa: BLE001
+            log(f"[openrouter {model}] second opinion unavailable: {e}")
+    return None
 
 
 def ensure_highlight(lines):
@@ -299,17 +468,33 @@ def validate_post(post):
     cwords = len(post["caption"].split())
     if cwords < 170 or cwords > 340:
         return f"caption word count {cwords}"
-    post["caption"] = re.sub(r"\s?\[\d{1,2}\]", "", post["caption"]).strip()
+    cap = re.sub(r"\s?\[\d{1,2}\]", "", post["caption"])
+    cap = re.sub(r"\s*[\u2014\u2013]\s*", ", ", cap)  # no em/en dashes (AI tell)
+    cap = re.sub(r"[*_#`]+", "", cap).strip()
+    post["caption"] = cap
     post["headline_lines"] = ensure_highlight(lines)
     return None
 
 
-def build_post(recent):
+def add_hashtags(post):
+    tags = ["#PocketChangeHistory"]
+    for t in post.get("hashtags") or []:
+        t = "#" + re.sub(r"[^A-Za-z0-9]", "", str(t))
+        if len(t) > 3 and t.lower() not in [x.lower() for x in tags]:
+            tags.append(t)
+    tail = " ".join(tags[:3])
+    if SHOW_SOURCE and post.get("source_title"):
+        tail = f'Source: Wikipedia, "{post["source_title"]}"\n' + tail
+    post["caption"] = post["caption"].rstrip() + "\n\n" + tail
+
+
+def build_post(recent, used):
     for attempt in range(1, 13):
-        draw = random_draw()
-        log(f"attempt {attempt}: {draw}")
         try:
-            post = write_post(draw, recent)
+            title, source = pick_source(used)
+            used.add(title)  # never retry the same article inside one run
+            log(f"attempt {attempt}: source article: {title}")
+            post = write_post(title, source, recent)
             if post.get("skip"):
                 log("writer skipped:", post.get("reason"))
                 continue
@@ -320,9 +505,13 @@ def build_post(recent):
             if problem:
                 log("rejected:", problem)
                 continue
-            verdict = check_post(post)
-            log("verdict:", verdict.get("verdict"), verdict.get("issues"))
-            if verdict.get("verdict") not in ("confirmed", "probable"):
+            problems = verify_grounding(post, source)
+            if problems:
+                log("grounding failed:", problems)
+                continue
+            verdict = check_faithful(post, source)
+            if not verdict.get("faithful"):
+                log("checker: unsupported claims:", verdict.get("unsupported"))
                 continue
             try:
                 if float(verdict.get("hook_score", 0)) < 6:
@@ -330,23 +519,19 @@ def build_post(recent):
                     continue
             except (TypeError, ValueError):
                 pass
-            if verdict.get("fixed_headline_lines") or verdict.get("fixed_caption"):
-                candidate = dict(post)
-                if verdict.get("fixed_headline_lines"):
-                    candidate["headline_lines"] = verdict["fixed_headline_lines"]
-                if verdict.get("fixed_caption"):
-                    candidate["caption"] = verdict["fixed_caption"]
-                if validate_post(candidate) is None:
-                    post = candidate
-                else:
-                    log("checker fix ignored: it broke the format/length rules")
-            post["confidence"] = verdict["verdict"].capitalize()
-            post["issues"] = verdict.get("issues") or []
-            post["draw"] = draw
+            second = second_opinion(post, source)
+            if second is not None and not second.get("faithful", True):
+                log("second opinion: unsupported claims:", second.get("unsupported"))
+                continue
+            post["source_title"] = title
+            post["confidence"] = "Grounded in Wikipedia source text"
+            post["sources"] = [f"Wikipedia: {title}"]
+            post["issues"] = []
+            add_hashtags(post)
             return post
         except Exception as e:  # noqa: BLE001
             log("attempt failed:", e)
-    raise RuntimeError("could not build a verified post after 12 attempts")
+    raise RuntimeError("could not build a source-grounded post after 12 attempts")
 
 
 # ----------------------------------------------------------------- image
@@ -465,6 +650,33 @@ def send_to_telegram(img, post):
         tg("sendMessage", data={"chat_id": TG_CHAT, "text": notes[:4000]})
 
 
+# ----------------------------------------------------------------- facebook
+def send_to_facebook(img, post):
+    """Publish image + caption together as ONE photo post on the Page."""
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=94, subsampling=0)
+    buf.seek(0)
+    caption = post["caption"].strip()
+    if FB_DISCLOSURE:
+        caption += "\n\n" + FB_DISCLOSURE
+    r = requests.post(
+        f"https://graph.facebook.com/{FB_VERSION}/{FB_PAGE_ID}/photos",
+        data={"caption": caption, "published": "true", "access_token": FB_PAGE_TOKEN},
+        files={"source": ("post.jpg", buf, "image/jpeg")},
+        timeout=180,
+    )
+    if not r.ok:
+        raise RuntimeError(f"facebook failed: HTTP {r.status_code} {r.text[:400]}")
+    data = r.json()
+    log("facebook post id:", data.get("post_id") or data.get("id"))
+
+
+def facebook_due():
+    if not (FB_PAGE_ID and FB_PAGE_TOKEN):
+        return False
+    return datetime.now(timezone.utc).hour % FB_EVERY_HOURS == 0
+
+
 # ----------------------------------------------------------------- main
 def main():
     missing = [n for n, v in (("POLLINATIONS_API_KEY", KEY), ("TELEGRAM_BOT_TOKEN", TG_TOKEN), ("TELEGRAM_CHAT_ID", TG_CHAT)) if not v]
@@ -473,17 +685,26 @@ def main():
 
     history = load_history()
     recent = [h["topic"] for h in history[-40:]]
-    post = build_post(recent)
+    used = {h.get("source") for h in history if h.get("source")}
+    post = build_post(recent, used)
     log("topic:", post["topic"])
 
     img = generate_image(post["image_prompt"])
     img = overlay_text(img, post["headline_lines"], post["subhook"])
     send_to_telegram(img, post)
+    if facebook_due():
+        try:
+            send_to_facebook(img, post)
+        except Exception as e:  # noqa: BLE001  (a Facebook problem must not break the Telegram run)
+            log("FACEBOOK ERROR:", e)
+    else:
+        log("facebook skipped this hour (not configured or not due)")
 
     history.append(
         {
             "ts": datetime.now(timezone.utc).isoformat(timespec="minutes"),
             "topic": post["topic"],
+            "source": post.get("source_title"),
             "year": post.get("year"),
             "country": post.get("country"),
         }
