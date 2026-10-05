@@ -31,7 +31,7 @@ jobs:
       # ৩. এখানে নতুন র‍্যান্ডম স্লিপ স্টেপটি যোগ করা হলো (১ থেকে ৫০ মিনিটের মধ্যে যেকোনো সময়)
       - name: Sleep for a random time
         run: |
-          DELAY=$((1 + RANDOM % 50))
+          DELAY=$((1 + RANDOM % 2))
           echo "Sleeping for $DELAY minutes..."
           sleep $((DELAY * 60))
 
