@@ -114,5 +114,12 @@
   "source": "Company store",
   "year": "1907",
   "country": "Mexico"
+ },
+ {
+  "ts": "2026-10-05T18:28+00:00",
+  "topic": "GST and harmonized sales tax (Canada) history",
+  "source": "Goods and services tax (Canada)",
+  "year": "1991 and 2008",
+  "country": "Canada"
  }
 ]
