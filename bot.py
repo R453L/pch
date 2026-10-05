@@ -554,7 +554,7 @@ def build_post(recent, used):
                 log("checker: unsupported claims:", verdict.get("unsupported"))
                 continue
             try:
-                if float(verdict.get("hook_score", 0)) < 6:
+                if float(verdict.get("hook_score", 0)) < 5:
                     log("rejected: weak hook", verdict.get("hook_score"))
                     continue
             except (TypeError, ValueError):
