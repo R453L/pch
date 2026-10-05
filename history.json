@@ -86,5 +86,12 @@
   "source": "Mill (currency)",
   "year": 1786,
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-05T15:23+00:00",
+  "topic": "United Kingdom poll tax and local government finance",
+  "source": "Poll tax riots",
+  "year": "1990",
+  "country": "United Kingdom"
  }
 ]
