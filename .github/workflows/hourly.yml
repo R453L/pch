@@ -3,7 +3,8 @@ name: hourly-post
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 * * * *'
+    # এটি একটি প্রাথমিক ক্রন টাইম। প্রতিবার রান শেষে এটি স্বয়ংক্রিয়ভাবে পরিবর্তিত হবে।
+    - cron: '27 */3 * * *'
 
 permissions:
   contents: write
@@ -30,11 +31,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Sleep for a random time
-        run: |
-          DELAY=$((1 + RANDOM % 19))
-          echo "Sleeping for $DELAY minutes..."
-          sleep $((DELAY * 60))
+      # নোট: স্লিপ স্টেপটি বাদ দেওয়া হয়েছে কারণ এখন ক্রন নিজেই র‍্যান্ডম সময়ে ট্রিগার হবে।
 
       - name: Generate and send post
         run: python bot.py
@@ -47,7 +44,29 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
 
-      - name: Save topic history
+      # এই নতুন স্টেপটি পরবর্তী ৩য় ঘণ্টার জন্য একটি র‍্যান্ডম মিনিট তৈরি করে ক্রন শিডিউল আপডেট করবে
+      - name: Calculate and Update Next Random Cron
+        shell: bash
+        run: |
+          set -e
+          
+          # ০ থেকে ৫৯ এর মধ্যে একটি র‍্যান্ডম মিনিট জেনারেট করা
+          RANDOM_MINUTE=$(( RANDOM % 60 ))
+          
+          # পরবর্তী ৩ ঘণ্টার গ্যাপে রান হওয়ার জন্য ক্রন এক্সপ্রেশন তৈরি
+          NEW_CRON="$RANDOM_MINUTE */3 * * *"
+          echo "Next calculated cron interval: $NEW_CRON"
+          
+          # আপনার ওয়ার্কফ্লো ফাইলটির নাম যদি অন্য কিছু হয়, তবে নিচের নাম পরিবর্তন করুন
+          WORKFLOW_FILE=".github/workflows/hourly-post.yml"
+          
+          # ফাইলের ভেতরের পুরনো ক্রন লাইনটি নতুন ক্রন দিয়ে রিপ্লেস করা
+          sed -i -E "s/- cron: '.*'/- cron: '$NEW_CRON'/" $WORKFLOW_FILE
+          
+          # ফাইলটি গিট ট্র্যাকিংয়ে যোগ করা
+          git add $WORKFLOW_FILE
+
+      - name: Save topic history and push updates
         shell: bash
         run: |
           set -e
@@ -55,10 +74,12 @@ jobs:
           git config --global user.name "pch-bot"
           git config --global user.email "pch-bot@users.noreply.github.com"
 
+          # history.json অলরেডি আগের লাইনে অ্যাড করা ফাইলের সাথে যোগ হবে
           git add history.json
 
+          # ক্রন ফাইল বা হিস্ট্রি ফাইল যেকোনো একটি পরিবর্তন হলেই পুশ করবে
           if ! git diff --cached --quiet; then
-            git commit -m "update history"
+            git commit -m "bot: update history and random cron schedule [skip ci]"
             git push origin HEAD:${GITHUB_REF_NAME:-main}
           else
             echo "No changes to commit."
