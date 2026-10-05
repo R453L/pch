@@ -94,14 +94,23 @@ HEADLINE RULES:
 - subhook: 3-6 words, ALL CAPS, truthful (e.g. "THE REASON IS WILD").
 - The headline must be truthful and supported by the fact.
 
-CAPTION RULES:
-- 110-150 words, natural American English, conversational, documentary, slightly mysterious.
-- The FIRST sentence must be a hook: a surprising statement or a direct question, with a number. Never start with "In late 19th-century..." style textbook openings.
-- Write 3 short paragraphs separated by blank lines, finishing with one thought-provoking closing sentence.
-- Explain what is shown, when, where, why it existed, context, and why it is interesting today.
+CAPTION RULES (storytelling, the reader must feel they cannot stop reading):
+- Length: 200-280 words. Natural American English, conversational, vivid, documentary, slightly mysterious.
+- Structure, in 5 or 6 short paragraphs separated by blank lines:
+  1. HOOK: one or two sentences with a surprising number or a direct question that opens a curiosity gap. Never a textbook opening like "In late 19th-century...".
+  2. SCENE: put the reader inside the period. What did ordinary people see, pay, earn or do? Use concrete everyday details.
+  3. TENSION: why was this a problem, a gamble or a strange rule? Tease the twist without giving it away yet.
+  4. REVEAL: the surprising fact, with exact year, country and numbers.
+  5. AFTERMATH: what changed afterwards and why it matters.
+  6. CLOSER: one thought-provoking sentence that links to today, ending with a short question that invites comments.
+- Use short, punchy sentences mixed with longer ones. Build suspense paragraph by paragraph so people read to the end.
 - Do not repeat the headline word-for-word. No filler. No unsupported phrases like "Experts believe" or "Everyone used".
 - Use precise wording ("In parts of Britain...", "By the 1920s...", "According to surviving records...").
 - Plain text only, no emojis, no hashtags, no markdown.
+
+TOPIC RULE:
+- The story must be clearly about money, prices, wages, jobs, banks, taxes, trade or business history.
+- NEVER choose topics about executions, crime and punishment, violence, war atrocities, disasters, tragedies or anything graphic or sensitive.
 
 Return ONLY one JSON object, no markdown fences, with keys:
 skip, topic, fact, year, country, headline_lines (array), subhook, image_prompt, caption, sources (array of 2-4 source types/names), confidence (Confirmed|Probable|Disputed)."""
@@ -117,7 +126,7 @@ Approximate figures are fine when the post says "about" or "around".
 Return ONLY one JSON object, no markdown fences:
 {"verdict": "confirmed|probable|disputed|unverifiable", "hook_score": 1-10, "issues": ["..."], "fixed_headline_lines": null or array, "fixed_caption": null or string}
 hook_score rates how strongly the headline would stop a Facebook scroller (10 = jaw-dropping specific number and contrast, 1 = vague textbook summary).
-Use fixed_* only when a small correction makes the post accurate. Use "disputed" or "unverifiable" if the core fact is doubtful."""
+Use fixed_* only when a small correction makes the post accurate. fixed_caption must be the FULL caption with the same length, paragraphs and storytelling style, with only the wrong detail corrected. Never shorten it. Use "disputed" or "unverifiable" if the core fact is doubtful."""
 
 STYLE_SUFFIX = (
     ", vertical 4:5 documentary photograph, muted colorized archive look, faded earthy tones, soft film grain, "
@@ -286,7 +295,7 @@ def validate_post(post):
     if not 7 <= words <= 20:
         return f"headline word count {words}"
     cwords = len(post["caption"].split())
-    if cwords < 95 or cwords > 190:
+    if cwords < 170 or cwords > 340:
         return f"caption word count {cwords}"
     post["caption"] = re.sub(r"\s?\[\d{1,2}\]", "", post["caption"]).strip()
     post["headline_lines"] = ensure_highlight(lines)
@@ -319,10 +328,16 @@ def build_post(recent):
                     continue
             except (TypeError, ValueError):
                 pass
-            if verdict.get("fixed_headline_lines"):
-                post["headline_lines"] = verdict["fixed_headline_lines"]
-            if verdict.get("fixed_caption"):
-                post["caption"] = verdict["fixed_caption"]
+            if verdict.get("fixed_headline_lines") or verdict.get("fixed_caption"):
+                candidate = dict(post)
+                if verdict.get("fixed_headline_lines"):
+                    candidate["headline_lines"] = verdict["fixed_headline_lines"]
+                if verdict.get("fixed_caption"):
+                    candidate["caption"] = verdict["fixed_caption"]
+                if validate_post(candidate) is None:
+                    post = candidate
+                else:
+                    log("checker fix ignored: it broke the format/length rules")
             post["confidence"] = verdict["verdict"].capitalize()
             post["issues"] = verdict.get("issues") or []
             post["draw"] = draw
