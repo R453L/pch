@@ -90,8 +90,8 @@ WRITER_SYSTEM = f"""You are an expert Economic & Business Historian, fact checke
 You create ORIGINAL posts about the history of money, prices, wages, jobs, banks, companies and everyday economic life.
 
 HOOK RULE (most important after accuracy):
-- Pick a SINGLE concrete, surprising fact with a specific number and a contrast, e.g. a price vs a wage, a tiny cost vs a huge result, a strange rule vs normal life.
-- NEVER pick a general trend or broad summary ("retail grew", "banking expanded"). If the post cannot be summed up as one jaw-dropping sentence, choose a different fact instead.
+- Pick the most surprising concrete fact the SOURCE TEXT states: a number, ratio, date, price, rate, rule, failure or turning point, ideally with a contrast (a tiny cost vs a huge result, a strange rule vs normal life, a failure before a success).
+- Avoid vague trends ("retail grew", "banking expanded"); prefer one specific, checkable fact and build the story around it.
 - The reader must think "wait, really?" within one second.
 
 SOURCE-GROUNDING RULES (absolute):
@@ -104,8 +104,9 @@ SOURCE-GROUNDING RULES (absolute):
 - Never put citation markers like [1] or URLs in any text field.
 
 FACT TYPE RULE (very important):
-- Use ONLY discrete, officially documented facts: a law and its date, an official or fixed price/rate set by a government or company (postage rate, minimum wage, tax rate, official fare, a famous advertised price), a founding date and founder, an invention and its year, a documented record or event.
-- NEVER use "typical", "average", "commonly", "often priced at" or "many workers earned" claims about market prices or wages. They vary by place and cannot be verified.
+- Prefer concrete documented facts (a law and its date, a rate or ratio, a founding date and founder, an invention and its year, a record, a failure and what followed). It does not have to be an everyday price.
+- Do not state vague claims such as "typical", "average" or "many workers earned" unless the SOURCE TEXT states them.
+- STYLE: tell what happened using the source's own facts. Do not add evaluations or claims of importance that the source does not state (for example "saved the company", "brutal", "the biggest"). Rhetorical questions and reflections belong only in the CLOSER paragraph.
 - The caption must tell the history. Never say the image "shows" a real moment or present the illustration as evidence.
 
 FACT RULES:
@@ -113,7 +114,6 @@ FACT RULES:
 - Every number needs a year and a country. Never present inflation-adjusted figures as original prices.
 - For "first ever" claims, say "one of the earliest" if disputed. Company origin myths must be treated carefully.
 - Prefer WELL-KNOWN, widely documented facts (famous price comparisons, well-known wage figures, famous founding stories, documented laws, famous inventions of payment). Approximate numbers are fine if you write "about" or "around".
-- Never choose these topics: {BANNED}.
 
 IMAGE RULES:
 - image_prompt is ONE rich, specific photographic scene description (40-70 words): subject, setting, period details, lighting, mood, lens/camera feel.
@@ -146,7 +146,7 @@ CAPTION RULES (viral storytelling written to a high SEO-style quality bar):
 - Plain text only. NO em dashes (use commas, periods or colons), no emojis, no markdown, no hashtags inside the text.
 
 TOPIC RULE:
-- The story must be clearly about money, prices, wages, jobs, banks, taxes, trade or business history.
+- The story must be about money, prices, wages, jobs, banks, taxes, trade, currency or business history (currency and banking history ARE allowed).
 - NEVER choose topics about executions, crime and punishment, violence, war atrocities, disasters, tragedies or anything graphic or sensitive.
 
 Return ONLY one JSON object, no markdown fences, with keys:
@@ -154,7 +154,8 @@ skip, topic, fact, year, country, headline_lines (array), subhook, image_prompt,
 
 CHECKER_SYSTEM = """You are a strict fact checker. You receive SOURCE TEXT (from Wikipedia) and a DRAFT social post.
 Decide whether every factual claim in the draft's headline and caption is supported by the SOURCE TEXT.
-Flag: claims not in the source, wrong cause and effect, exaggeration, "first/only/most" claims the source does not make, anachronisms, numbers attached to the wrong thing.
+Flag ONLY hard factual problems: a number, date, amount, name or event that is not in the source; wrong cause and effect; "first/only/most/saved/ended" style claims the source does not make; numbers attached to the wrong thing; anachronisms.
+Do NOT flag rhetorical questions, metaphors, transitions, mood, short summaries of what the source says, or the closing reflection. Wording like "simple" or "brutal" is not a factual claim unless it changes the facts.
 Ignore the atmosphere of the paragraph that starts with "Picture" or "Imagine", but flag any number, date or name there that is not in the SOURCE TEXT.
 Do NOT use outside knowledge to approve a claim. If the source does not say it, it is unsupported.
 Return ONLY one JSON object, no markdown fences:
@@ -268,11 +269,32 @@ NUM_RE = re.compile(
 )
 
 
+_WIKI_LAST = [0.0]
+
+
 def wiki_get(params):
+    """Polite, rate-limit friendly Wikipedia call: spaced requests and patient retries on 429/503."""
     p = {"format": "json", "formatversion": "2", **params}
-    r = requests.get(WIKI_API, params=p, headers={"User-Agent": WIKI_UA}, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    last = None
+    for i in range(5):
+        wait = 1.3 - (time.time() - _WIKI_LAST[0])
+        if wait > 0:
+            time.sleep(wait)
+        _WIKI_LAST[0] = time.time()
+        r = requests.get(WIKI_API, params=p, headers={"User-Agent": WIKI_UA, "Accept-Encoding": "gzip"}, timeout=30)
+        if r.status_code in (429, 503):
+            try:
+                delay = float(r.headers.get("Retry-After", ""))
+            except ValueError:
+                delay = 0
+            delay = max(delay, 8 * (i + 1))
+            last = f"HTTP {r.status_code}"
+            log(f"wikipedia busy ({r.status_code}), waiting {delay:.0f}s")
+            time.sleep(min(delay, 60))
+            continue
+        r.raise_for_status()
+        return r.json()
+    raise RuntimeError(f"wikipedia kept refusing: {last}")
 
 
 def wiki_search(query, limit=10):
@@ -292,22 +314,40 @@ def wiki_extract(title):
     return text.strip()[:14000]
 
 
+MONEY_WORDS = re.compile(
+    r"\b(price|prices|wage|wages|tax|taxes|taxation|bank|banks|banking|cost|costs|cents?|dollars?|pounds?|shillings?|pence|francs?|marks?|yen|"
+    r"currency|coin|coins|banknotes?|salary|salaries|profit|profits|sales|sold|store|stores|company|founded|credit|loan|loans|debt|trade|tariff|fee|fees|fare|fares|paid|payment|payments|money)\b",
+    re.I,
+)
+SENSITIVE_TITLE = re.compile(
+    r"racis|nudity|murder|assassin|massacre|genocide|rape|sexual|porn|suicide|execution|terror|war crime|holocaust|slavery|rasputin|"
+    r"abuse|torture|lynch|nazi|fascis|communis|genital|prostitut|drug|cocaine|heroin|opium",
+    re.I,
+)
+
+
 def pick_source(used):
     """Random money-history search -> a real Wikipedia article we have not used yet."""
     cat = random.randrange(len(CATEGORIES))
-    query = f"{random.choice(CATEGORY_KEYWORDS[cat])} {random.choices(WIKI_COUNTRIES, COUNTRY_WEIGHTS)[0]} {random.choice(ERAS)}"
+    kw = random.choice(CATEGORY_KEYWORDS[cat])
+    query = kw if random.random() < 0.5 else f"{kw} {random.choices(WIKI_COUNTRIES, COUNTRY_WEIGHTS)[0]}"
     log("wikipedia search:", query)
     titles = [
         t
-        for t in wiki_search(query)
-        if not re.match(r"(List of|Timeline of|Index of|Outline of)", t) and not BANNED_TITLE.search(t) and t not in used
-    ][:5]
+        for t in wiki_search(query, 15)
+        if not re.match(r"(List of|Timeline of|Index of|Outline of)", t)
+        and not BANNED_TITLE.search(t)
+        and not SENSITIVE_TITLE.search(t)
+        and t not in used
+    ][:8]
     random.shuffle(titles)
-    for t in titles:
+    for t in titles[:4]:
         text = wiki_extract(t)
-        if len(text) >= 1500 and len(YEAR_RE.findall(text)) >= 3:
-            return t, text
         used.add(t)
+        money = len(MONEY_WORDS.findall(text))
+        if len(text) >= 1500 and len(YEAR_RE.findall(text)) >= 3 and money >= 20:
+            return t, text
+        log(f"skipped article {t!r}: not money-focused enough ({money} money words)")
     raise ValueError(f"no usable article for query {query!r}")
 
 
