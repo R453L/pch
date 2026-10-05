@@ -32,7 +32,7 @@ jobs:
 
       - name: Sleep for a random time
         run: |
-          DELAY=$((1 + RANDOM % 2))
+          DELAY=$((1 + RANDOM % 19))
           echo "Sleeping for $DELAY minutes..."
           sleep $((DELAY * 60))
 
