@@ -43,6 +43,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TEXT_MODEL: ${{ vars.TEXT_MODEL || 'openai' }}
           IMAGE_MODEL: ${{ vars.IMAGE_MODEL || 'flux' }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
 
       - name: Save topic history
         run: |
