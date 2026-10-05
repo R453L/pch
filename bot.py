@@ -18,7 +18,8 @@ API = "https://gen.pollinations.ai"
 KEY = os.environ.get("POLLINATIONS_API_KEY", "")
 TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
-TEXT_MODEL = os.environ.get("TEXT_MODEL", "openai")
+WRITER_MODEL = os.environ.get("WRITER_MODEL", "gemini-search")
+CHECKER_MODEL = os.environ.get("CHECKER_MODEL", "gemini-search")
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "flux")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
 WATERMARK = os.environ.get("WATERMARK", "AI-generated illustration")
@@ -61,6 +62,8 @@ HOOK RULE (most important after accuracy):
 - NEVER pick a general trend or broad summary ("retail grew", "banking expanded"). If the post cannot be summed up as one jaw-dropping sentence, choose a different fact instead.
 - The reader must think "wait, really?" within one second.
 
+You have live web search. USE IT to confirm the fact before writing: prefer facts confirmed by official or archival sources (central banks, national archives, government sites, museums, reputable encyclopedias or newspapers). Never put citation markers like [1] or URLs in headline, caption or any text field.
+
 FACT TYPE RULE (very important):
 - Use ONLY discrete, officially documented facts: a law and its date, an official or fixed price/rate set by a government or company (postage rate, minimum wage, tax rate, official fare, a famous advertised price), a founding date and founder, an invention and its year, a documented record or event.
 - NEVER use "typical", "average", "commonly", "often priced at" or "many workers earned" claims about market prices or wages. They vary by place and cannot be verified.
@@ -100,9 +103,12 @@ skip, topic, fact, year, country, headline_lines (array), subhook, image_prompt,
 
 CHECKER_SYSTEM = """You are a strict, skeptical history fact checker. You receive a draft social post.
 Check ONLY the core factual claim in the headline and fact (dates, numbers, country, names). Ignore the image idea, style, framing and tone. Accept official, discrete facts that you recognize as well documented.
-Be strict about viral myths and invented details, BUT you cannot browse the web and the writer cannot attach documents, so do NOT demand citations or exact document references.
-Judge using your own knowledge: accept facts that match widely documented history; approximate figures are fine when the post says "about" or "around".
-Use "unverifiable" or "disputed" only if the core claim seems wrong, invented, a known myth, or you do not recognize it at all.
+You have live web search. Search for the core claim and compare the exact numbers, dates and country with reliable sources (official archives, central banks, government sites, museums, reputable encyclopedias or newspapers).
+- "confirmed": a reliable source clearly matches the claim.
+- "probable": sources broadly agree but one detail is slightly imprecise.
+- "disputed": sources contradict the claim or it is a known myth.
+- "unverifiable": you searched and found no reliable source for it.
+Approximate figures are fine when the post says "about" or "around".
 Return ONLY one JSON object, no markdown fences:
 {"verdict": "confirmed|probable|disputed|unverifiable", "hook_score": 1-10, "issues": ["..."], "fixed_headline_lines": null or array, "fixed_caption": null or string}
 hook_score rates how strongly the headline would stop a Facebook scroller (10 = jaw-dropping specific number and contrast, 1 = vague textbook summary).
@@ -142,7 +148,7 @@ def extract_json(text):
     return json.loads(text[start : end + 1])
 
 
-def chat(system, user, temperature=0.9, retries=3):
+def chat(system, user, model, temperature=0.9, retries=3):
     last = None
     for i in range(retries):
         try:
@@ -150,7 +156,7 @@ def chat(system, user, temperature=0.9, retries=3):
                 f"{API}/v1/chat/completions",
                 headers={"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"},
                 json={
-                    "model": TEXT_MODEL,
+                    "model": model,
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
@@ -178,6 +184,17 @@ def random_draw():
     }
 
 
+def chat_json(system, user, model, temperature, tries=3):
+    last = None
+    for i in range(tries):
+        try:
+            return extract_json(chat(system, user, model, temperature))
+        except ValueError as e:  # includes JSONDecodeError
+            last = e
+            log(f"bad JSON from model ({i + 1}/{tries}): {e}")
+    raise RuntimeError(f"model did not return valid JSON: {last}")
+
+
 def write_post(draw, recent):
     user = (
         "RANDOM DRAW (follow it):\n"
@@ -187,12 +204,12 @@ def write_post(draw, recent):
         f"Do NOT repeat or closely resemble any of these recent topics: {json.dumps(recent)}\n"
         "Return the JSON object now."
     )
-    return extract_json(chat(WRITER_SYSTEM, user, temperature=0.9))
+    return chat_json(WRITER_SYSTEM, user, WRITER_MODEL, 0.9)
 
 
 def check_post(post):
     draft = {k: post.get(k) for k in ("topic", "fact", "year", "country", "headline_lines", "caption")}
-    return extract_json(chat(CHECKER_SYSTEM, json.dumps(draft, ensure_ascii=False), temperature=0.2))
+    return chat_json(CHECKER_SYSTEM, json.dumps(draft, ensure_ascii=False), CHECKER_MODEL, 0.2)
 
 
 def ensure_highlight(lines):
@@ -215,6 +232,7 @@ def validate_post(post):
     cwords = len(post["caption"].split())
     if cwords < 95 or cwords > 190:
         return f"caption word count {cwords}"
+    post["caption"] = re.sub(r"\s?\[\d{1,2}\]", "", post["caption"]).strip()
     post["headline_lines"] = ensure_highlight(lines)
     return None
 
