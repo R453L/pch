@@ -56,7 +56,12 @@ BANNED = (
 WRITER_SYSTEM = f"""You are an expert Economic & Business Historian, fact checker and viral Facebook history copywriter.
 You create ORIGINAL posts about the history of money, prices, wages, jobs, banks, companies and everyday economic life.
 
-FACT RULES (most important):
+HOOK RULE (most important after accuracy):
+- Pick a SINGLE concrete, surprising fact with a specific number and a contrast, e.g. a price vs a wage, a tiny cost vs a huge result, a strange rule vs normal life.
+- NEVER pick a general trend or broad summary ("retail grew", "banking expanded"). If the post cannot be summed up as one jaw-dropping sentence, skip it.
+- The reader must think "wait, really?" within one second.
+
+FACT RULES:
 - NEVER invent facts. Only use facts you are highly confident are well documented.
 - Every number needs a year and a country. Never present inflation-adjusted figures as original prices.
 - For "first ever" claims, say "one of the earliest" if disputed. Company origin myths must be treated carefully.
@@ -70,12 +75,15 @@ IMAGE RULES:
 - Keep the main subject in the top 65% of the frame; the bottom 30% must be calm and dark-friendly.
 
 HEADLINE RULES:
-- headline_lines: 3 or 4 short ALL-CAPS lines, 8-18 words total. Wrap the 1-4 most surprising words (numbers, years) in [square brackets] for red highlight. Do not put the whole headline in brackets.
+- headline_lines: exactly 3 or 4 short ALL-CAPS lines, 8-16 words total, each line MAX 24 characters. It must read like a curiosity hook, NOT a title or summary (bad: "AUSTRALIA'S NEW RETAIL FORMS (1880S)"; good: "A LOAF OF BREAD COST / [5 CENTS] IN [1910] / BUT WORKERS EARNED / [UNDER $10 A WEEK]").
+- ALWAYS wrap the 1-4 most surprising words (numbers, years, prices) in [square brackets] for red highlight. Never put the whole headline in brackets. Do not use parentheses.
 - subhook: 3-6 words, ALL CAPS, truthful (e.g. "THE REASON IS WILD").
 - The headline must be truthful and supported by the fact.
 
 CAPTION RULES:
-- 100-150 words, natural American English, conversational, documentary, slightly mysterious. The first sentence creates curiosity.
+- 110-150 words, natural American English, conversational, documentary, slightly mysterious.
+- The FIRST sentence must be a hook: a surprising statement or a direct question, with a number. Never start with "In late 19th-century..." style textbook openings.
+- Write 3 short paragraphs separated by blank lines, finishing with one thought-provoking closing sentence.
 - Explain what is shown, when, where, why it existed, context, and why it is interesting today.
 - Do not repeat the headline word-for-word. No filler. No unsupported phrases like "Experts believe" or "Everyone used".
 - Use precise wording ("In parts of Britain...", "By the 1920s...", "According to surviving records...").
@@ -88,7 +96,8 @@ CHECKER_SYSTEM = """You are a strict, skeptical history fact checker. You receiv
 Check every date, number, country, name and claim against what is reliably documented.
 Be harsh: viral myths, rounded-up numbers and invented details must be flagged.
 Return ONLY one JSON object, no markdown fences:
-{"verdict": "confirmed|probable|disputed|unverifiable", "issues": ["..."], "fixed_headline_lines": null or array, "fixed_caption": null or string}
+{"verdict": "confirmed|probable|disputed|unverifiable", "hook_score": 1-10, "issues": ["..."], "fixed_headline_lines": null or array, "fixed_caption": null or string}
+hook_score rates how strongly the headline would stop a Facebook scroller (10 = jaw-dropping specific number and contrast, 1 = vague textbook summary).
 Use fixed_* only when a small correction makes the post accurate. Use "disputed" or "unverifiable" if the core fact is doubtful."""
 
 STYLE_SUFFIX = (
@@ -178,6 +187,30 @@ def check_post(post):
     return extract_json(chat(CHECKER_SYSTEM, json.dumps(draft, ensure_ascii=False), temperature=0.2))
 
 
+def ensure_highlight(lines):
+    """If the model forgot [brackets], auto-highlight numbers, prices and years in red."""
+    if any("[" in l for l in lines):
+        return lines
+    pat = re.compile(r"(\$?£?€?\d[\d,\.]*\s?(?:CENTS?|PENNIES|PENCE|DOLLARS?|POUNDS?|%|YEARS?|HOURS?|DAYS?|WEEKS?)?)", re.I)
+    return [pat.sub(lambda m: f"[{m.group(1).strip()}]" + (" " if m.group(1).endswith(" ") else ""), l) for l in lines]
+
+
+def validate_post(post):
+    lines = post["headline_lines"]
+    if not isinstance(lines, list) or not 3 <= len(lines) <= 4:
+        return "headline must have 3-4 lines"
+    if any(len(re.sub(r"[\[\]]", "", l)) > 28 for l in lines):
+        return "headline line too long"
+    words = len(" ".join(lines).split())
+    if not 7 <= words <= 20:
+        return f"headline word count {words}"
+    cwords = len(post["caption"].split())
+    if cwords < 95 or cwords > 190:
+        return f"caption word count {cwords}"
+    post["headline_lines"] = ensure_highlight(lines)
+    return None
+
+
 def build_post(recent):
     for attempt in range(1, 6):
         draw = random_draw()
@@ -190,10 +223,20 @@ def build_post(recent):
             for key in ("headline_lines", "subhook", "image_prompt", "caption", "topic"):
                 if not post.get(key):
                     raise ValueError(f"missing {key}")
+            problem = validate_post(post)
+            if problem:
+                log("rejected:", problem)
+                continue
             verdict = check_post(post)
             log("verdict:", verdict.get("verdict"), verdict.get("issues"))
             if verdict.get("verdict") not in ("confirmed", "probable"):
                 continue
+            try:
+                if float(verdict.get("hook_score", 0)) < 7:
+                    log("rejected: weak hook", verdict.get("hook_score"))
+                    continue
+            except (TypeError, ValueError):
+                pass
             if verdict.get("fixed_headline_lines"):
                 post["headline_lines"] = verdict["fixed_headline_lines"]
             if verdict.get("fixed_caption"):
@@ -303,12 +346,9 @@ def send_to_telegram(img, post):
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=94, subsampling=0)
     buf.seek(0)
-    caption = post["caption"].strip()
-    if len(caption) <= 1024:
-        tg("sendPhoto", data={"chat_id": TG_CHAT, "caption": caption}, files={"photo": ("post.jpg", buf)})
-    else:
-        tg("sendPhoto", data={"chat_id": TG_CHAT}, files={"photo": ("post.jpg", buf)})
-        tg("sendMessage", data={"chat_id": TG_CHAT, "text": caption[:4000]})
+    # 1) image alone, 2) full caption as a normal message (no 1024-char caption limit)
+    tg("sendPhoto", data={"chat_id": TG_CHAT}, files={"photo": ("post.jpg", buf)})
+    tg("sendMessage", data={"chat_id": TG_CHAT, "text": post["caption"].strip()[:4000]})
     if SEND_NOTES:
         notes = (
             f"Fact check notes\n"
