@@ -24,10 +24,10 @@ def _models(name, default):
 
 
 # comma-separated lists: the first model is tried first, the next ones are fallbacks
-# রাইটার হিসেবে ক্রিয়েটিভ মডেল (Mistral/Llama)
-WRITER_MODELS = _models("WRITER_MODEL", "mistral,llama")
-# চেকার হিসেবে লজিক্যাল ও প্রফেশনাল রিভিউয়ার মডেল (Qwen/Mistral)
-CHECKER_MODELS = _models("CHECKER_MODEL", "qwen,mistral")
+# রাইটিংয়ের জন্য: DeepSeek -> Pollinations -> Qwen-Coder
+WRITER_MODELS = _models("WRITER_MODEL", "deepseek,pollinations,qwen-coder")
+# চেকিংয়ের জন্য: Qwen-Coder -> DeepSeek -> Pollinations
+CHECKER_MODELS = _models("CHECKER_MODEL", "qwen-coder,deepseek,pollinations")
 IMAGE_MODELS = _models("IMAGE_MODEL", "flux")  # comma list = fallback order, e.g. "zimage,flux"
 PAGE_NAME = os.environ.get("PAGE_NAME", "Pocket Change History")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
