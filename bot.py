@@ -24,8 +24,10 @@ def _models(name, default):
 
 
 # comma-separated lists: the first model is tried first, the next ones are fallbacks
-WRITER_MODELS = _models("WRITER_MODEL", "mistral,qwen,llama")
-CHECKER_MODELS = _models("CHECKER_MODEL", "mistral,qwen,llama")
+# রাইটার হিসেবে ক্রিয়েটিভ মডেল (Mistral/Llama)
+WRITER_MODELS = _models("WRITER_MODEL", "mistral,llama")
+# চেকার হিসেবে লজিক্যাল ও প্রফেশনাল রিভিউয়ার মডেল (Qwen/Mistral)
+CHECKER_MODELS = _models("CHECKER_MODEL", "qwen,mistral")
 IMAGE_MODELS = _models("IMAGE_MODEL", "flux")  # comma list = fallback order, e.g. "zimage,flux"
 PAGE_NAME = os.environ.get("PAGE_NAME", "Pocket Change History")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
