@@ -1,3 +1,16 @@
+
+name: hourly-post
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '34 */3 * * *'
+
+# আর কোনো অন্যান্য trigger নেই, শুধু এই ২টি
+
+concurrency:
+  group: hourly-post
+  cancel-in-progress: true  # পুরানো runs cancel করে দেয়
 name: hourly-post
 
 on:
