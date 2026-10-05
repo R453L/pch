@@ -1,10 +1,13 @@
 name: hourly-post
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # cron-job.org এই অপশনটিকে প্রতি ৩ ঘণ্টা পর পর হিট করবে
+  
   schedule:
-    # এটি একটি প্রাথমিক ক্রন টাইম। প্রতিবার রান শেষে এটি স্বয়ংক্রিয়ভাবে পরিবর্তিত হবে।
-    - cron: '27 */3 * * *'
+    # ম্যাজিক এখানে! cron-job.org প্রথমবার এটাকে চালু করার পর, 
+    # স্ক্রিপ্টটি নিজেই নিজের পরবর্তী ৩য় ঘণ্টার জন্য একটি র‍্যান্ডম মিনিট ও ঘণ্টা সেট করে রাখবে।
+    # এটি গিটহাবের ব্যাকআপ ক্রন হিসেবে কাজ করবে যা প্রতিবার স্বয়ংক্রিয়ভাবে পরিবর্তিত হবে।
+    - cron: '34 */3 * * *'
 
 permissions:
   contents: write
@@ -31,8 +34,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # নোট: স্লিপ স্টেপটি বাদ দেওয়া হয়েছে কারণ এখন ক্রন নিজেই র‍্যান্ডম সময়ে ট্রিগার হবে।
-
+      # কোনো স্লিপ বা ডিলে নেই! cron-job.org নক দেওয়া মাত্রই সাথে সাথে পোস্ট জেনারেট হবে
       - name: Generate and send post
         run: python bot.py
         env:
@@ -44,7 +46,7 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
 
-      # এই নতুন স্টেপটি পরবর্তী ৩য় ঘণ্টার জন্য একটি র‍্যান্ডম মিনিট তৈরি করে ক্রন শিডিউল আপডেট করবে
+      # এই স্টেপটি পরবর্তী ৩য় ঘণ্টার জন্য গিটহাবের নিজস্ব ক্রন শিডিউলটি সম্পূর্ণ র‍্যান্ডম করে দেবে
       - name: Calculate and Update Next Random Cron
         shell: bash
         run: |
@@ -57,13 +59,12 @@ jobs:
           NEW_CRON="$RANDOM_MINUTE */3 * * *"
           echo "Next calculated cron interval: $NEW_CRON"
           
-          # আপনার ওয়ার্কফ্লো ফাইলটির নাম যদি অন্য কিছু হয়, তবে নিচের নাম পরিবর্তন করুন
+          # আপনার ওয়ার্কফ্লো ফাইলটির নাম যদি অন্য কিছু হয়, তবে এখানে পরিবর্তন করুন
           WORKFLOW_FILE=".github/workflows/hourly-post.yml"
           
           # ফাইলের ভেতরের পুরনো ক্রন লাইনটি নতুন ক্রন দিয়ে রিপ্লেস করা
           sed -i -E "s/- cron: '.*'/- cron: '$NEW_CRON'/" $WORKFLOW_FILE
           
-          # ফাইলটি গিট ট্র্যাকিংয়ে যোগ করা
           git add $WORKFLOW_FILE
 
       - name: Save topic history and push updates
@@ -72,9 +73,8 @@ jobs:
           set -e
 
           git config --global user.name "pch-bot"
-          git config --global user.email "pch-bot@users.noreply.github.com"
+          git config --global user.email "pch-bot@://github.com"
 
-          # history.json অলরেডি আগের লাইনে অ্যাড করা ফাইলের সাথে যোগ হবে
           git add history.json
 
           # ক্রন ফাইল বা হিস্ট্রি ফাইল যেকোনো একটি পরিবর্তন হলেই পুশ করবে
