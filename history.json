@@ -34,5 +34,11 @@
   "topic": "Official fixed prices and rates (postage rates, fares, set ticket prices, official coin or note values) via a shop type",
   "year": 1910,
   "country": "USA"
+ },
+ {
+  "ts": "2026-10-05T08:42+00:00",
+  "topic": "old money customs and payment methods (price + settlement practice)",
+  "year": 1910,
+  "country": "Japan"
  }
 ]
