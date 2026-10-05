@@ -23,8 +23,8 @@ def _models(name, default):
 
 
 # comma-separated lists: the first model is tried first, the next ones are fallbacks
-WRITER_MODELS = _models("WRITER_MODEL", "gemini-search,perplexity-fast,openai")
-CHECKER_MODELS = _models("CHECKER_MODEL", "gemini-search,perplexity-fast")
+WRITER_MODELS = _models("WRITER_MODEL", "openai")
+CHECKER_MODELS = _models("CHECKER_MODEL", "openai")
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "flux")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
 WATERMARK = os.environ.get("WATERMARK", "AI-generated illustration")
@@ -67,7 +67,7 @@ HOOK RULE (most important after accuracy):
 - NEVER pick a general trend or broad summary ("retail grew", "banking expanded"). If the post cannot be summed up as one jaw-dropping sentence, choose a different fact instead.
 - The reader must think "wait, really?" within one second.
 
-You have live web search. USE IT to confirm the fact before writing: prefer facts confirmed by official or archival sources (central banks, national archives, government sites, museums, reputable encyclopedias or newspapers). Never put citation markers like [1] or URLs in headline, caption or any text field.
+You do NOT have web search. Use ONLY facts you know with HIGH confidence from many reliable sources (central banks, national archives, government records, museums, encyclopedias). If you are not sure about an exact number, date or country, choose a different fact. Never put citation markers like [1] or URLs in any text field.
 
 FACT TYPE RULE (very important):
 - Use ONLY discrete, officially documented facts: a law and its date, an official or fixed price/rate set by a government or company (postage rate, minimum wage, tax rate, official fare, a famous advertised price), a founding date and founder, an invention and its year, a documented record or event.
@@ -108,11 +108,11 @@ skip, topic, fact, year, country, headline_lines (array), subhook, image_prompt,
 
 CHECKER_SYSTEM = """You are a strict, skeptical history fact checker. You receive a draft social post.
 Check ONLY the core factual claim in the headline and fact (dates, numbers, country, names). Ignore the image idea, style, framing and tone. Accept official, discrete facts that you recognize as well documented.
-You have live web search. Search for the core claim and compare the exact numbers, dates and country with reliable sources (official archives, central banks, government sites, museums, reputable encyclopedias or newspapers).
-- "confirmed": a reliable source clearly matches the claim.
-- "probable": sources broadly agree but one detail is slightly imprecise.
-- "disputed": sources contradict the claim or it is a known myth.
-- "unverifiable": you searched and found no reliable source for it.
+You cannot browse the web and the writer cannot attach documents, so do NOT demand citations. Judge from your own knowledge of well-documented history.
+- "confirmed": you clearly know the claim to be correct.
+- "probable": broadly correct, one minor detail slightly imprecise.
+- "disputed": contradicts what you know, or is a known myth.
+- "unverifiable": you cannot recall any reliable basis for it.
 Approximate figures are fine when the post says "about" or "around".
 Return ONLY one JSON object, no markdown fences:
 {"verdict": "confirmed|probable|disputed|unverifiable", "hook_score": 1-10, "issues": ["..."], "fixed_headline_lines": null or array, "fixed_caption": null or string}
@@ -199,6 +199,10 @@ def chat_json(system, user, models, temperature, tries=2):
                 last = e
                 log(f"[{model}] call failed: {e}")
                 break  # go to next model
+            if raw and ("enough credits" in raw or "needs paid Pollen" in raw):
+                last = RuntimeError("model needs paid Pollen credits")
+                log(f"[{model}] needs paid Pollen credits, skipping this model")
+                break
             try:
                 return extract_json(raw)
             except ValueError as e:
@@ -233,12 +237,51 @@ def ensure_highlight(lines):
     return [pat.sub(lambda m: f"[{m.group(1).strip()}]" + (" " if m.group(1).endswith(" ") else ""), l) for l in lines]
 
 
+def rewrap_headline(lines, width=24):
+    """Re-wrap headline words into lines of at most `width` chars, keeping [red] words together."""
+    tokens = []  # (word, is_red)
+    red = False
+    for word in " ".join(lines).split():
+        starts, ends = word.startswith("["), word.endswith("]")
+        if starts:
+            red = True
+        clean = word.strip("[]")
+        if clean:
+            tokens.append((clean, red))
+        if ends:
+            red = False
+    out, cur = [], []
+    for w, r in tokens:
+        if cur and len(" ".join(x for x, _ in cur + [(w, r)])) > width:
+            out.append(cur)
+            cur = []
+        cur.append((w, r))
+    if cur:
+        out.append(cur)
+    rendered = []
+    for line in out:
+        parts, i = [], 0
+        while i < len(line):
+            j = i
+            while j < len(line) and line[j][1] == line[i][1]:
+                j += 1
+            chunk = " ".join(x for x, _ in line[i:j])
+            parts.append(f"[{chunk}]" if line[i][1] else chunk)
+            i = j
+        rendered.append(" ".join(parts))
+    return rendered
+
+
 def validate_post(post):
     lines = post["headline_lines"]
-    if not isinstance(lines, list) or not 3 <= len(lines) <= 4:
-        return "headline must have 3-4 lines"
+    if not isinstance(lines, list) or not lines:
+        return "headline missing"
+    lines = [str(l) for l in lines]
     if any(len(re.sub(r"[\[\]]", "", l)) > 28 for l in lines):
-        return "headline line too long"
+        lines = rewrap_headline(lines)
+    if not 3 <= len(lines) <= 4:
+        return f"headline has {len(lines)} lines after wrapping"
+    post["headline_lines"] = lines
     words = len(" ".join(lines).split())
     if not 7 <= words <= 20:
         return f"headline word count {words}"
@@ -251,7 +294,7 @@ def validate_post(post):
 
 
 def build_post(recent):
-    for attempt in range(1, 9):
+    for attempt in range(1, 13):
         draw = random_draw()
         log(f"attempt {attempt}: {draw}")
         try:
@@ -271,7 +314,7 @@ def build_post(recent):
             if verdict.get("verdict") not in ("confirmed", "probable"):
                 continue
             try:
-                if float(verdict.get("hook_score", 0)) < 7:
+                if float(verdict.get("hook_score", 0)) < 6:
                     log("rejected: weak hook", verdict.get("hook_score"))
                     continue
             except (TypeError, ValueError):
@@ -286,7 +329,7 @@ def build_post(recent):
             return post
         except Exception as e:  # noqa: BLE001
             log("attempt failed:", e)
-    raise RuntimeError("could not build a verified post after 8 attempts")
+    raise RuntimeError("could not build a verified post after 12 attempts")
 
 
 # ----------------------------------------------------------------- image
