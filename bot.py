@@ -32,13 +32,13 @@ W, H = 1080, 1350
 WHITE, RED, GOLD = (255, 255, 255), (226, 38, 38), (240, 190, 90)
 
 CATEGORIES = [
-    "old prices of everyday items (bread, milk, cars, houses, movie tickets)",
-    "old wages and strange old jobs",
+    "official fixed prices and rates (postage rates, fares, set ticket prices, official coin or note values)",
+    "minimum wage laws, documented pay rates and strange old jobs",
     "how a famous company actually started",
     "early banks, currency, coins, banknotes",
     "first credit cards, ATMs, cash registers, vending machines",
     "old shops, markets, department stores, general stores",
-    "early advertising and old product pricing",
+    "famous early advertising campaigns and price promotions that are well documented",
     "strange taxes and forgotten laws about money or trade",
     "old money customs and payment methods",
     "things that disappeared from everyday economic life",
@@ -60,6 +60,11 @@ HOOK RULE (most important after accuracy):
 - Pick a SINGLE concrete, surprising fact with a specific number and a contrast, e.g. a price vs a wage, a tiny cost vs a huge result, a strange rule vs normal life.
 - NEVER pick a general trend or broad summary ("retail grew", "banking expanded"). If the post cannot be summed up as one jaw-dropping sentence, choose a different fact instead.
 - The reader must think "wait, really?" within one second.
+
+FACT TYPE RULE (very important):
+- Use ONLY discrete, officially documented facts: a law and its date, an official or fixed price/rate set by a government or company (postage rate, minimum wage, tax rate, official fare, a famous advertised price), a founding date and founder, an invention and its year, a documented record or event.
+- NEVER use "typical", "average", "commonly", "often priced at" or "many workers earned" claims about market prices or wages. They vary by place and cannot be verified.
+- The caption must tell the history. Never say the image "shows" a real moment or present the illustration as evidence.
 
 FACT RULES:
 - NEVER invent facts. Only use facts you are highly confident are well documented.
@@ -94,7 +99,7 @@ Return ONLY one JSON object, no markdown fences, with keys:
 skip, topic, fact, year, country, headline_lines (array), subhook, image_prompt, caption, sources (array of 2-4 source types/names), confidence (Confirmed|Probable|Disputed)."""
 
 CHECKER_SYSTEM = """You are a strict, skeptical history fact checker. You receive a draft social post.
-Check every date, number, country, name and claim against what is reliably documented.
+Check ONLY the core factual claim in the headline and fact (dates, numbers, country, names). Ignore the image idea, style, framing and tone. Accept official, discrete facts that you recognize as well documented.
 Be strict about viral myths and invented details, BUT you cannot browse the web and the writer cannot attach documents, so do NOT demand citations or exact document references.
 Judge using your own knowledge: accept facts that match widely documented history; approximate figures are fine when the post says "about" or "around".
 Use "unverifiable" or "disputed" only if the core claim seems wrong, invented, a known myth, or you do not recognize it at all.
