@@ -535,7 +535,7 @@ def build_post(recent, used):
     for attempt in range(1, 13):
         try:
             title, source = pick_source(used)
-            used.add(title)  # never retry the same article inside one run
+            used.add(title)
             log(f"attempt {attempt}: source article: {title}")
             post = write_post(title, source, recent)
             if post.get("skip"):
@@ -548,7 +548,7 @@ def build_post(recent, used):
             if problem:
                 log("rejected:", problem)
                 continue
-                        problems = verify_grounding(post, source)
+            problems = verify_grounding(post, source)
             if problems:
                 hard = [
                     p for p in problems
@@ -558,7 +558,7 @@ def build_post(recent, used):
                 if hard:
                     log("grounding failed:", hard)
                     continue
-                        verdict = check_faithful(post, source)
+            verdict = check_faithful(post, source)
             if not verdict.get("faithful"):
                 unsupported = verdict.get("unsupported") or []
                 hard_unsupported = [
@@ -585,9 +585,10 @@ def build_post(recent, used):
             post["issues"] = []
             add_hashtags(post)
             return post
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log("attempt failed:", e)
-        fallback = {
+
+    fallback = {
         "skip": False,
         "topic": "money history",
         "fact": "A historical money fact",
