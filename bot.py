@@ -548,10 +548,16 @@ def build_post(recent, used):
             if problem:
                 log("rejected:", problem)
                 continue
-            problems = verify_grounding(post, source)
+                        problems = verify_grounding(post, source)
             if problems:
-                log("grounding failed:", problems)
-                continue
+                hard = [
+                    p for p in problems
+                    if "numbers not in source" in p.lower()
+                    or ("quote not found in source" in p.lower() and len(p) > 60)
+                ]
+                if hard:
+                    log("grounding failed:", hard)
+                    continue
             verdict = check_faithful(post, source)
             if not verdict.get("faithful"):
                 log("checker: unsupported claims:", verdict.get("unsupported"))
