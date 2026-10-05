@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import requests
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 API = "https://gen.pollinations.ai"
 KEY = os.environ.get("POLLINATIONS_API_KEY", "")
@@ -33,7 +33,9 @@ HERE = Path(__file__).parent
 HISTORY = HERE / "history.json"
 FONT_PATH = HERE / "fonts" / "Anton-Regular.ttf"
 FALLBACK_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-W, H = 1080, 1350
+W, H = 1080, 1350          # final post size (4:5)
+IMG_H = 945                  # height of the photo area; the rest is a dark text panel
+GEN_W, GEN_H = 1280, 1120    # generate larger, then downscale for extra sharpness
 
 WHITE, RED, GOLD = (255, 255, 255), (226, 38, 38), (240, 190, 90)
 
@@ -83,10 +85,11 @@ FACT RULES:
 - Never choose these topics: {BANNED}.
 
 IMAGE RULES:
-- image_prompt describes ONLY the scene: anonymous people, shopfronts, counters, objects, machines, with generic period signage.
-- No real people, no real brand names or logos, no real banknote or coin designs, no readable text in the scene.
-- One strong focal point, close or medium shot, dramatic natural light, a tangible curiosity object large in frame, a clear human moment.
-- Keep the main subject in the top 65% of the frame; the bottom 30% must be calm and dark-friendly.
+- image_prompt is ONE rich, specific photographic scene description (40-70 words): subject, setting, period details, lighting, mood, lens/camera feel.
+- Prefer a CLOSE-UP or MEDIUM shot of hands, objects and documents (a paper slip, coins in a palm, a till drawer, a ledger, a counter) with ONE anonymous person seen from the side, from behind, or partly out of focus. Avoid wide crowd scenes and avoid frontal close-ups of faces.
+- The scene must contain NO signs, posters, shop names, labels, newspapers or any writing at all. Use plain walls, windows, wood, metal, fabric, shadows instead.
+- No real people, no real brand names or logos, no real banknote or coin designs.
+- Strong single focal point in the center, dramatic natural window or street light, warm highlights and deep shadows, rich textures, shallow depth of field.
 
 HEADLINE RULES:
 - headline_lines: exactly 3 or 4 short ALL-CAPS lines, 8-16 words total, each line MAX 24 characters. It must read like a curiosity hook, NOT a title or summary (bad: "AUSTRALIA'S NEW RETAIL FORMS (1880S)"; good: "A LOAF OF BREAD COST / [5 CENTS] IN [1910] / BUT WORKERS EARNED / [UNDER $10 A WEEK]").
@@ -129,10 +132,9 @@ hook_score rates how strongly the headline would stop a Facebook scroller (10 = 
 Use fixed_* only when a small correction makes the post accurate. fixed_caption must be the FULL caption with the same length, paragraphs and storytelling style, with only the wrong detail corrected. Never shorten it. Use "disputed" or "unverifiable" if the core fact is doubtful."""
 
 STYLE_SUFFIX = (
-    ", vertical 4:5 documentary photograph, muted colorized archive look, faded earthy tones, soft film grain, "
-    "slightly desaturated, authentic period details, natural dramatic window light, shallow depth of field, "
-    "realistic faces and anatomy, imperfect vintage exposure, subject in the upper two thirds, "
-    "empty dark calm area at the bottom, no text, no letters, no logos, no watermark"
+    ", award-winning documentary photograph, shot on 35mm film, 50mm lens, sharp focus, highly detailed, "
+    "rich warm vintage color grade, deep contrast, natural film grain, authentic period details, "
+    "cinematic natural light, shallow depth of field, photorealistic, high resolution"
 )
 
 
@@ -353,12 +355,15 @@ def generate_image(prompt):
     last = None
     for i in range(4):
         seed = random.randint(1, 10**8)
-        url = f"{API}/image/{quote(full)}?model={IMAGE_MODEL}&width={W}&height={H}&seed={seed}&nologo=true"
+        url = f"{API}/image/{quote(full)}?model={IMAGE_MODEL}&width={GEN_W}&height={GEN_H}&seed={seed}&nologo=true"
         try:
             r = requests.get(url, headers={"Authorization": f"Bearer {KEY}"}, timeout=240)
             if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
                 img = Image.open(io.BytesIO(r.content)).convert("RGB")
-                return img.resize((W, H), Image.LANCZOS) if img.size != (W, H) else img
+                img = img.resize((W, IMG_H), Image.LANCZOS)
+                img = ImageEnhance.Contrast(img).enhance(1.08)
+                img = ImageEnhance.Color(img).enhance(1.06)
+                return img.filter(ImageFilter.UnsharpMask(radius=1.3, percent=75, threshold=3))
             last = f"HTTP {r.status_code} {r.text[:200]}"
         except Exception as e:  # noqa: BLE001
             last = e
@@ -384,50 +389,51 @@ def parse_segments(line):
     return segs
 
 
-def overlay_text(img, headline_lines, subhook):
-    img = img.convert("RGB")
-    # bottom gradient
-    grad_h = int(H * 0.46)
-    grad = Image.new("L", (W, grad_h))
-    gd = ImageDraw.Draw(grad)
-    for y in range(grad_h):
-        t = y / (grad_h - 1)
-        gd.line([(0, y), (W, y)], fill=int(245 * (t**1.35)))
-    black = Image.new("RGB", (W, grad_h), (0, 0, 0))
-    img.paste(black, (0, H - grad_h), grad)
+def overlay_text(photo, headline_lines, subhook):
+    """Photo on top, solid dark panel below with a smooth fade, so text never covers the subject."""
+    img = Image.new("RGB", (W, H), (0, 0, 0))
+    img.paste(photo, (0, 0))
+    fade_h = 320
+    fade = Image.new("L", (W, fade_h))
+    fd = ImageDraw.Draw(fade)
+    for y in range(fade_h):
+        t = y / (fade_h - 1)
+        fd.line([(0, y), (W, y)], fill=int(255 * (t**1.15)))
+    img.paste(Image.new("RGB", (W, fade_h), (0, 0, 0)), (0, IMG_H - fade_h), fade)
 
     lines = [parse_segments(l.upper()) for l in headline_lines if l.strip()]
-    max_w, max_h = W - 120, int(H * 0.34)
-    size = 112
+    max_w, max_h = W - 100, 400
+    size = 120
     while size > 36:
         font = load_font(size)
-        sub_font = load_font(int(size * 0.5))
-        lh = int(size * 1.1)
+        sub_font = load_font(int(size * 0.46))
+        lh = int(size * 1.08)
         widths = [sum(font.getlength(t) for t, _ in segs) for segs in lines]
-        total = lh * len(lines) + int(size * 0.5) + int(size * 0.42)
+        total = lh * len(lines) + int(size * 0.55)
         if max(widths) <= max_w and total <= max_h:
             break
         size -= 4
 
     draw = ImageDraw.Draw(img)
-    y = H - 80 - total
+    y = H - 78 - total
+    bar_w = 110
+    draw.rectangle([(W - bar_w) / 2, y - 26, (W + bar_w) / 2, y - 18], fill=RED)  # accent bar
     for segs, width in zip(lines, widths):
         x = (W - width) / 2
         for text, color in segs:
-            draw.text((x + 3, y + 4), text, font=font, fill=(0, 0, 0))  # shadow
+            draw.text((x + 3, y + 4), text, font=font, fill=(0, 0, 0))
             draw.text((x, y), text, font=font, fill=color)
             x += font.getlength(text)
         y += lh
     sub = subhook.upper().strip()
     sw = sub_font.getlength(sub)
-    sy = y + int(size * 0.12)
-    draw.text(((W - sw) / 2 + 2, sy + 3), sub, font=sub_font, fill=(0, 0, 0))
+    sy = y + int(size * 0.1)
     draw.text(((W - sw) / 2, sy), sub, font=sub_font, fill=GOLD)
 
     if WATERMARK:
         wm_font = load_font(22)
         ww = wm_font.getlength(WATERMARK)
-        draw.text((W - ww - 28, H - 40), WATERMARK, font=wm_font, fill=(215, 215, 215))
+        draw.text((W - ww - 28, H - 40), WATERMARK, font=wm_font, fill=(200, 200, 200))
     return img
 
 
