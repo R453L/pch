@@ -43,9 +43,9 @@ CATEGORIES = [
     "old money customs and payment methods",
     "things that disappeared from everyday economic life",
 ]
-ERAS = ["1880s", "1900s", "1910s", "1920s", "1930s", "1940s", "1950s", "1960s", "1970s", "1980s"]
-COUNTRIES = ["USA", "UK", "Canada", "Australia", "Ireland", "Germany", "France", "Japan", "India", "Brazil", "Mexico", "Italy"]
-COUNTRY_WEIGHTS = [5, 5, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1]
+ERAS = ["1900s", "1910s", "1920s", "1930s", "1940s", "1950s", "1960s", "1970s", "1980s"]
+COUNTRIES = ["USA", "UK", "Canada", "Australia", "France", "Spain", "Germany", "Japan"]
+COUNTRY_WEIGHTS = [10, 8, 3, 3, 2, 1, 1, 1]
 ANGLES = ["a price", "a wage", "a job", "an object", "a law", "a company origin", "a payment method", "a shop type"]
 BANNED = (
     "vending machines, the first credit card, the first ATM, Coca-Cola, the Ford Model T, "
@@ -58,14 +58,15 @@ You create ORIGINAL posts about the history of money, prices, wages, jobs, banks
 
 HOOK RULE (most important after accuracy):
 - Pick a SINGLE concrete, surprising fact with a specific number and a contrast, e.g. a price vs a wage, a tiny cost vs a huge result, a strange rule vs normal life.
-- NEVER pick a general trend or broad summary ("retail grew", "banking expanded"). If the post cannot be summed up as one jaw-dropping sentence, skip it.
+- NEVER pick a general trend or broad summary ("retail grew", "banking expanded"). If the post cannot be summed up as one jaw-dropping sentence, choose a different fact instead.
 - The reader must think "wait, really?" within one second.
 
 FACT RULES:
 - NEVER invent facts. Only use facts you are highly confident are well documented.
 - Every number needs a year and a country. Never present inflation-adjusted figures as original prices.
 - For "first ever" claims, say "one of the earliest" if disputed. Company origin myths must be treated carefully.
-- If you cannot find a solid, well-documented fact for the requested draw, return {{"skip": true, "reason": "..."}}.
+- Prefer WELL-KNOWN, widely documented facts (famous price comparisons, well-known wage figures, famous founding stories, documented laws, famous inventions of payment). Approximate numbers are fine if you write "about" or "around".
+- The draw is only a STARTING DIRECTION. If no strong fact fits it exactly, move to the nearest era, country or category (prefer USA or UK) and use a strong fact there. You MUST return a post. Return {{"skip": true}} only as an absolute last resort.
 - Never choose these topics: {BANNED}.
 
 IMAGE RULES:
@@ -94,7 +95,9 @@ skip, topic, fact, year, country, headline_lines (array), subhook, image_prompt,
 
 CHECKER_SYSTEM = """You are a strict, skeptical history fact checker. You receive a draft social post.
 Check every date, number, country, name and claim against what is reliably documented.
-Be harsh: viral myths, rounded-up numbers and invented details must be flagged.
+Be strict about viral myths and invented details, BUT you cannot browse the web and the writer cannot attach documents, so do NOT demand citations or exact document references.
+Judge using your own knowledge: accept facts that match widely documented history; approximate figures are fine when the post says "about" or "around".
+Use "unverifiable" or "disputed" only if the core claim seems wrong, invented, a known myth, or you do not recognize it at all.
 Return ONLY one JSON object, no markdown fences:
 {"verdict": "confirmed|probable|disputed|unverifiable", "hook_score": 1-10, "issues": ["..."], "fixed_headline_lines": null or array, "fixed_caption": null or string}
 hook_score rates how strongly the headline would stop a Facebook scroller (10 = jaw-dropping specific number and contrast, 1 = vague textbook summary).
@@ -212,7 +215,7 @@ def validate_post(post):
 
 
 def build_post(recent):
-    for attempt in range(1, 6):
+    for attempt in range(1, 9):
         draw = random_draw()
         log(f"attempt {attempt}: {draw}")
         try:
@@ -247,7 +250,7 @@ def build_post(recent):
             return post
         except Exception as e:  # noqa: BLE001
             log("attempt failed:", e)
-    raise RuntimeError("could not build a verified post after 5 attempts")
+    raise RuntimeError("could not build a verified post after 8 attempts")
 
 
 # ----------------------------------------------------------------- image
