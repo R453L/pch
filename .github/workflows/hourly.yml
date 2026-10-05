@@ -1,21 +1,21 @@
 name: hourly-post
 
+# Triggered ONLY by cron-job.org (API call). No GitHub schedule here, so there are no double runs.
 on:
-  schedule:
-    - cron: '0 */3 * * *'   # 00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00
   workflow_dispatch:
 
 permissions:
   contents: write
 
+# Never cancel a run that is posting; a second trigger waits in the queue.
 concurrency:
   group: hourly-post
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   post:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,13 +29,6 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Random delay to avoid same-time patterns
-        shell: bash
-        run: |
-          RANDOM_DELAY=$((RANDOM % 20))
-          echo "Waiting $RANDOM_DELAY minutes before posting..."
-          sleep $((RANDOM_DELAY * 60))
 
       - name: Generate and send post
         run: python bot.py
@@ -57,7 +50,8 @@ jobs:
           git add history.json
           if ! git diff --cached --quiet; then
             git commit -m "bot: update history [skip ci]"
-            git push origin HEAD:${GITHUB_REF_NAME:-main}
+            git pull --rebase origin "${GITHUB_REF_NAME:-main}" || true
+            git push origin HEAD:"${GITHUB_REF_NAME:-main}"
           else
             echo "No changes to commit."
           fi
