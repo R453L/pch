@@ -18,8 +18,13 @@ API = "https://gen.pollinations.ai"
 KEY = os.environ.get("POLLINATIONS_API_KEY", "")
 TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
-WRITER_MODEL = os.environ.get("WRITER_MODEL", "gemini-search")
-CHECKER_MODEL = os.environ.get("CHECKER_MODEL", "gemini-search")
+def _models(name, default):
+    return [m.strip() for m in os.environ.get(name, default).split(",") if m.strip()]
+
+
+# comma-separated lists: the first model is tried first, the next ones are fallbacks
+WRITER_MODELS = _models("WRITER_MODEL", "gemini-search,perplexity-fast,openai")
+CHECKER_MODELS = _models("CHECKER_MODEL", "gemini-search,perplexity-fast")
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "flux")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
 WATERMARK = os.environ.get("WATERMARK", "AI-generated illustration")
@@ -184,15 +189,23 @@ def random_draw():
     }
 
 
-def chat_json(system, user, model, temperature, tries=3):
+def chat_json(system, user, models, temperature, tries=2):
     last = None
-    for i in range(tries):
-        try:
-            return extract_json(chat(system, user, model, temperature))
-        except ValueError as e:  # includes JSONDecodeError
-            last = e
-            log(f"bad JSON from model ({i + 1}/{tries}): {e}")
-    raise RuntimeError(f"model did not return valid JSON: {last}")
+    for model in models:
+        for i in range(tries):
+            try:
+                raw = chat(system, user, model, temperature)
+            except Exception as e:  # noqa: BLE001
+                last = e
+                log(f"[{model}] call failed: {e}")
+                break  # go to next model
+            try:
+                return extract_json(raw)
+            except ValueError as e:
+                last = e
+                snippet = (raw or "").strip().replace("\n", " ")[:300]
+                log(f"[{model}] bad JSON ({i + 1}/{tries}): {e} | reply was: {snippet!r}")
+    raise RuntimeError(f"no model returned valid JSON: {last}")
 
 
 def write_post(draw, recent):
@@ -204,12 +217,12 @@ def write_post(draw, recent):
         f"Do NOT repeat or closely resemble any of these recent topics: {json.dumps(recent)}\n"
         "Return the JSON object now."
     )
-    return chat_json(WRITER_SYSTEM, user, WRITER_MODEL, 0.9)
+    return chat_json(WRITER_SYSTEM, user, WRITER_MODELS, 0.9)
 
 
 def check_post(post):
     draft = {k: post.get(k) for k in ("topic", "fact", "year", "country", "headline_lines", "caption")}
-    return chat_json(CHECKER_SYSTEM, json.dumps(draft, ensure_ascii=False), CHECKER_MODEL, 0.2)
+    return chat_json(CHECKER_SYSTEM, json.dumps(draft, ensure_ascii=False), CHECKER_MODELS, 0.2)
 
 
 def ensure_highlight(lines):
