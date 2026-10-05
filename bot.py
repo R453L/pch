@@ -214,7 +214,8 @@ def chat(system, user, model, temperature=0.9, retries=3):
         try:
             r = requests.post(
                 f"{API}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"},
+                headers={
+                "Content-Type": "application/json"},
                 json={
                     "model": model,
                     "messages": [
