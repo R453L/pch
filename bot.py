@@ -25,9 +25,9 @@ def _models(name, default):
 
 # comma-separated lists: the first model is tried first, the next ones are fallbacks
 # রাইটিংয়ের জন্য: DeepSeek -> Pollinations -> Qwen-Coder
-WRITER_MODELS = _models("WRITER_MODEL", "deepseek,pollinations,qwen-coder")
-# চেকিংয়ের জন্য: Qwen-Coder -> DeepSeek -> Pollinations
-CHECKER_MODELS = _models("CHECKER_MODEL", "qwen-coder,deepseek,pollinations")
+# সম্পূর্ণ ফ্রি ও জিরো-ক্রেডিট মডেলের নির্ভরযোগ্য লিস্ট
+WRITER_MODELS = _models("WRITER_MODEL", "openai,mistral-nemo,pollinations")
+CHECKER_MODELS = _models("CHECKER_MODEL", "openai,mistral-nemo,pollinations")
 IMAGE_MODELS = _models("IMAGE_MODEL", "flux")  # comma list = fallback order, e.g. "zimage,flux"
 PAGE_NAME = os.environ.get("PAGE_NAME", "Pocket Change History")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
