@@ -20,7 +20,7 @@ TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
 TEXT_MODEL = os.environ.get("TEXT_MODEL", "openai")
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "flux")
-SEND_NOTES = os.environ.get("SEND_NOTES", "1") == "1"
+SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
 WATERMARK = os.environ.get("WATERMARK", "AI-generated illustration")
 
 HERE = Path(__file__).parent
