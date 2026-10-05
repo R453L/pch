@@ -28,5 +28,11 @@
   "topic": "early banks, currency, coins, banknotes",
   "year": 1900,
   "country": "USA"
+ },
+ {
+  "ts": "2026-10-05T08:35+00:00",
+  "topic": "Official fixed prices and rates (postage rates, fares, set ticket prices, official coin or note values) via a shop type",
+  "year": 1910,
+  "country": "USA"
  }
 ]
