@@ -31,7 +31,7 @@ CHECKER_MODELS = _models("CHECKER_MODEL", "openai,mistral-nemo,pollinations")
 IMAGE_MODELS = _models("IMAGE_MODEL", "flux")  # comma list = fallback order, e.g. "zimage,flux"
 PAGE_NAME = os.environ.get("PAGE_NAME", "Pocket Change History")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
-WATERMARK = os.environ.get("WATERMARK", "AI-generated illustration")
+WATERMARK = os.environ.get("WATERMARK", "AI-generated image")
 
 # Facebook Page posting (optional: runs only when both values are set)
 FB_PAGE_ID = os.environ.get("FB_PAGE_ID", "").strip()
