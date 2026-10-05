@@ -2,7 +2,6 @@ name: hourly-post
 
 on:
   workflow_dispatch:
-  # ১. প্রতি ঘণ্টার শুরুতে ট্রিগার করার জন্য শিডিউল যোগ করা হলো
   schedule:
     - cron: '0 * * * *'
 
@@ -16,19 +15,21 @@ concurrency:
 jobs:
   post:
     runs-on: ubuntu-latest
-    # ২. টাইমআউট বাড়িয়ে ৬০ মিনিট করা হলো (র্যান্ডম স্লিপের কারণে)
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
-      - run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      # ৩. এখানে নতুন র‍্যান্ডম স্লিপ স্টেপটি যোগ করা হলো (১ থেকে ৫০ মিনিটের মধ্যে যেকোনো সময়)
       - name: Sleep for a random time
         run: |
           DELAY=$((1 + RANDOM % 2))
@@ -47,8 +48,18 @@ jobs:
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
 
       - name: Save topic history
+        shell: bash
         run: |
-          git config user.name "pch-bot"
-          git config user.email "pch-bot@users.noreply.github.com"
+          set -e
+
+          git config --global user.name "pch-bot"
+          git config --global user.email "pch-bot@users.noreply.github.com"
+
           git add history.json
-          git diff --cached --quiet || (git commit -m "update history" && git push)
+
+          if ! git diff --cached --quiet; then
+            git commit -m "update history"
+            git push origin HEAD:${GITHUB_REF_NAME:-main}
+          else
+            echo "No changes to commit."
+          fi
