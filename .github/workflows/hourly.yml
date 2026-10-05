@@ -36,7 +36,7 @@ jobs:
           POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TEXT_MODEL: ${{ vars.TEXT_MODEL || 'openai' }}
+          TEXT_MODEL: ${{ vars.TEXT_MODEL || 'respan/span-01-lite' }}
           IMAGE_MODEL: ${{ vars.IMAGE_MODEL || 'flux' }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
