@@ -88,6 +88,9 @@ WIKI_COUNTRIES = ["United States", "United Kingdom", "Canada", "Australia", "Fra
 
 WRITER_SYSTEM = f"""You are an expert Economic & Business Historian, fact checker and viral Facebook history copywriter.
 You create ORIGINAL posts about the history of money, prices, wages, jobs, banks, companies and everyday economic life.
+- Follow the source text closely and do not rephrase factual claims in ways that could be challenged.
+- Prefer exact wording from the source for names, years, numbers, and dates.
+- Do not invent causal links, timing, or comparisons that are not stated in the source.
 
 HOOK RULE (most important after accuracy):
 - Pick the most surprising concrete fact the SOURCE TEXT states: a number, ratio, date, price, rate, rule, failure or turning point, ideally with a contrast (a tiny cost vs a huge result, a strange rule vs normal life, a failure before a success).
