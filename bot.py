@@ -24,8 +24,9 @@ def _models(name, default):
 
 
 # comma-separated lists: the first model is tried first, the next ones are fallbacks
-WRITER_MODELS = _models("WRITER_MODEL", "openai")
-CHECKER_MODELS = _models("CHECKER_MODEL", "openai")
+# প্রাইমারি হিসেবে TEXT_MODEL নিবে, সেটি না থাকলে বা ফেল করলে পর্যায়ক্রমে mistral, qwen, llama ট্রাই করবে
+WRITER_MODELS = _models("WRITER_MODEL", "mistral", "qwen", "llama")
+CHECKER_MODELS = _models("CHECKER_MODEL", "mistral", "qwen", "llama")
 IMAGE_MODELS = _models("IMAGE_MODEL", "flux")  # comma list = fallback order, e.g. "zimage,flux"
 PAGE_NAME = os.environ.get("PAGE_NAME", "Pocket Change History")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
