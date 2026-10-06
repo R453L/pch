@@ -330,6 +330,8 @@ class ModelBusy(RuntimeError):
 
 
 _BUSY = {}
+_REASONING_MODELS = set()   # models whose catalogue entry supports a reasoning parameter
+_NO_REASON_PARAM = set()   # models that rejected that parameter
 
 
 def or_call(messages, model, temperature=0.3, max_tokens=800, plugins=None):
@@ -346,6 +348,8 @@ def or_call(messages, model, temperature=0.3, max_tokens=800, plugins=None):
     for key in order[:10]:
         fp = _fp(key)
         body = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+        if model in _REASONING_MODELS and model not in _NO_REASON_PARAM:
+            body["reasoning"] = {"enabled": False}  # we want the answer, not pages of hidden thinking
         if plugins:
             body["plugins"] = plugins
         try:
@@ -376,6 +380,8 @@ def or_call(messages, model, temperature=0.3, max_tokens=800, plugins=None):
             ch = data["choices"][0]
             msg = ch.get("message") or {}
             content = msg.get("content") or ""
+            if not content.strip() and ch.get("finish_reason") == "length":
+                raise RuntimeError(f"model rejected: {model} spent the whole {max_tokens}-token limit on hidden reasoning")
             if not content.strip():
                 reasoning = msg.get("reasoning") or ""
                 log(f"[openrouter {fp}] {model} returned EMPTY content (finish_reason={ch.get('finish_reason')}, "
@@ -408,6 +414,10 @@ def or_call(messages, model, temperature=0.3, max_tokens=800, plugins=None):
                 log(f"[openrouter {fp}] daily limit reached, key rests until the next UTC day")
             else:
                 _park(fp, 120, "rate limited for 2 minutes")
+        elif code == 400 and "reasoning" in body and "reasoning" in low:
+            _NO_REASON_PARAM.add(model)  # this model does not accept the switch: retry without it
+            log(f"[{model}] does not accept the reasoning switch, retrying without it")
+            continue
         elif code in (400, 403, 404):
             raise RuntimeError(f"model rejected the request: {last}")
         time.sleep(0.5)
@@ -452,7 +462,9 @@ def _score(m):
         score += 3
     if SLOW_NAME.search(mid) or m.get("reasoning"):
         score -= 20
-    for pref in _models("PREFER_MODELS", "poolside/laguna-s-2.1:free"):
+    elif m.get("rparam"):
+        score -= 6  # hybrid models: usable with thinking switched off, but plain instruct models are safer
+    for pref in _models("PREFER_MODELS", ""):
         if pref.lower() in mid:
             score += 100
     return score
@@ -490,7 +502,10 @@ def discover_models():
             if ctx and ctx < 16000:
                 continue
             free.append({"id": mid, "created": m.get("created") or 0, "vision": "image" in (arch.get("input_modalities") or []),
-                         "reasoning": "reasoning" in desc})
+                         "reasoning": "reasoning" in desc,
+                         "rparam": "reasoning" in (m.get("supported_parameters") or []) or "include_reasoning" in (m.get("supported_parameters") or [])})
+            if "reasoning" in (m.get("supported_parameters") or []) or "include_reasoning" in (m.get("supported_parameters") or []):
+                _REASONING_MODELS.add(mid)
         if free:
             free.sort(key=_score, reverse=True)
             return [m["id"] for m in free], [m["id"] for m in free if m["vision"]]
@@ -647,7 +662,14 @@ def pick_source(used):
         if len(text) >= 1500 and len(YEAR_RE.findall(text)) >= 3 and money >= MIN_MONEY_WORDS and density >= MIN_MONEY_DENSITY:
             log(f"article {t!r} accepted ({money} money words, {density:.1f} per 1,000 characters)")
             return t, text
-        log(f"skipped article {t!r}: not money-focused enough ({money} money words, {density:.1f} per 1,000 characters)")
+        why = []
+        if len(text) < 1500:
+            why.append(f"too short ({len(text)} characters)")
+        if len(YEAR_RE.findall(text)) < 3:
+            why.append("fewer than 3 years")
+        if money < MIN_MONEY_WORDS or density < MIN_MONEY_DENSITY:
+            why.append("not money-focused enough")
+        log(f"skipped article {t!r}: {', '.join(why)} ({money} money words, {density:.1f} per 1,000 characters)")
     raise ValueError(f"no usable article for query {query!r}")
 
 
@@ -725,7 +747,7 @@ def write_post(title, source, recent):
         f"Do NOT repeat or closely resemble any of these recent topics: {json.dumps(recent)}\n"
         "Write the post using ONLY the SOURCE TEXT. Return the JSON object now."
     )
-    return chat_json(system, user, WRITER_MODELS, 0.7, max_tokens=5000)
+    return chat_json(system, user, WRITER_MODELS, 0.7, tries=1, max_tokens=5000)
 
 
 def check_faithful(post, source):
@@ -861,8 +883,15 @@ def add_hashtags(post):
     post["caption"] = post["caption"].rstrip() + "\n\n" + tail
 
 
+RUN_BUDGET_MIN = float(os.environ.get("RUN_BUDGET_MINUTES", "20"))
+
+
 def build_post(recent, used):
+    deadline = time.time() + RUN_BUDGET_MIN * 60
     for attempt in range(1, 13):
+        if time.time() > deadline:
+            log(f"time budget of {RUN_BUDGET_MIN:.0f} minutes used up")
+            break
         try:
             title, source = pick_source(used)
             used.add(title)
