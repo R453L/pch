@@ -135,5 +135,12 @@
   "source": "Wage",
   "year": "1750 BC",
   "country": "Mesopotamia (Babylon)"
+ },
+ {
+  "ts": "2026-10-06T21:33+00:00",
+  "topic": "carbon pricing",
+  "source": "Carbon pricing in Canada",
+  "year": "2025",
+  "country": "Canada"
  }
 ]
