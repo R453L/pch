@@ -452,7 +452,7 @@ def _score(m):
         score += 3
     if SLOW_NAME.search(mid) or m.get("reasoning"):
         score -= 20
-    for pref in _models("PREFER_MODELS", "poolside/laguna-s-2.1:free"):
+    for pref in _models("PREFER_MODELS", ""):
         if pref.lower() in mid:
             score += 100
     return score
@@ -615,6 +615,8 @@ MONEY_WORDS = re.compile(
     r"currency|coin|coins|banknotes?|salary|salaries|profit|profits|sales|sold|store|stores|company|founded|credit|loan|loans|debt|trade|tariff|fee|fees|fare|fares|paid|payment|payments|money)\b",
     re.I,
 )
+MIN_MONEY_DENSITY = float(os.environ.get("MIN_MONEY_DENSITY", "3"))   # money words per 1,000 characters
+MIN_MONEY_WORDS = int(os.environ.get("MIN_MONEY_WORDS", "8"))
 SENSITIVE_TITLE = re.compile(
     r"racis|nudity|murder|assassin|massacre|genocide|rape|sexual|porn|suicide|execution|terror|war crime|holocaust|slavery|rasputin|"
     r"abuse|torture|lynch|nazi|fascis|communis|genital|prostitut|drug|cocaine|heroin|opium",
@@ -641,9 +643,11 @@ def pick_source(used):
         text = wiki_extract(t)
         used.add(t)
         money = len(MONEY_WORDS.findall(text))
-        if len(text) >= 1500 and len(YEAR_RE.findall(text)) >= 3 and money >= 20:
+        density = money / max(len(text), 1) * 1000  # money words per 1,000 characters
+        if len(text) >= 1500 and len(YEAR_RE.findall(text)) >= 3 and money >= MIN_MONEY_WORDS and density >= MIN_MONEY_DENSITY:
+            log(f"article {t!r} accepted ({money} money words, {density:.1f} per 1,000 characters)")
             return t, text
-        log(f"skipped article {t!r}: not money-focused enough ({money} money words)")
+        log(f"skipped article {t!r}: not money-focused enough ({money} money words, {density:.1f} per 1,000 characters)")
     raise ValueError(f"no usable article for query {query!r}")
 
 
