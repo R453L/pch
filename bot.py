@@ -275,6 +275,13 @@ def keys_usable():
     return [k for k in OR_KEYS if not _parked(_fp(k))]
 
 
+class ModelBusy(RuntimeError):
+    """The model's provider is overloaded or rate-limited upstream. The key is fine; try another model."""
+
+
+_BUSY = {}
+
+
 def or_call(messages, model, temperature=0.3, max_tokens=800, plugins=None):
     """One OpenRouter request. Starts at the next key in the rotation and moves on if a key is out of credit."""
     if not OR_KEYS:
@@ -321,6 +328,12 @@ def or_call(messages, model, temperature=0.3, max_tokens=800, plugins=None):
         last = f"HTTP {code}: {text}"
         log(f"[openrouter {fp}] {model} failed: {last}")
         low = text.lower()
+        meta = (err or {}).get("metadata") if isinstance(err, dict) else None
+        etype = str((meta or {}).get("error_type", "")).lower() if isinstance(meta, dict) else ""
+        if ("provider returned error" in low or "upstream" in low or "overloaded" in low or "provider_overloaded" in etype
+                or code in (502, 503, 504)):
+            _BUSY[model] = time.time() + 600
+            raise ModelBusy(f"{model} is busy upstream ({last[:90]})")
         if code == 402:
             _park(fp, _next_midnight(), "no credit (try again tomorrow)")
             log(f"[openrouter {fp}] no credit, key rests until the next UTC day")
@@ -377,7 +390,7 @@ def _score(m):
     score += min(max((m.get("created", 0) - 1735689600) / (30 * 86400), 0) * 0.5, 20)  # newer is better (months since 2025-01)
     if "instruct" in mid or "chat" in mid:
         score += 3
-    if SLOW_NAME.search(mid):
+    if SLOW_NAME.search(mid) or m.get("reasoning"):
         score -= 20
     for pref in _models("PREFER_MODELS", ""):
         if pref.lower() in mid:
@@ -403,10 +416,21 @@ def discover_models():
             arch = m.get("architecture") or {}
             if (arch.get("output_modalities") or ["text"]) != ["text"]:
                 continue
+            exp = m.get("expiration_date")
+            if exp:
+                try:
+                    if datetime.fromisoformat(str(exp)[:10]).replace(tzinfo=timezone.utc) < datetime.now(timezone.utc) + timedelta(days=14):
+                        continue  # going away soon
+                except ValueError:
+                    pass
+            desc = str(m.get("description") or "").lower()
+            if re.search(r"coding agent|coding model|code generation|software engineering agent|agentic coding", desc):
+                continue
             ctx = m.get("context_length") or 0
             if ctx and ctx < 16000:
                 continue
-            free.append({"id": mid, "created": m.get("created") or 0, "vision": "image" in (arch.get("input_modalities") or [])})
+            free.append({"id": mid, "created": m.get("created") or 0, "vision": "image" in (arch.get("input_modalities") or []),
+                         "reasoning": "reasoning" in desc})
         if free:
             free.sort(key=_score, reverse=True)
             return [m["id"] for m in free], [m["id"] for m in free if m["vision"]]
@@ -443,6 +467,8 @@ def setup_models():
 def chat_json(system, user, models, temperature, tries=2, max_tokens=3000, plugins=None):
     last = None
     for model in models:
+        if _BUSY.get(model, 0) > time.time() and len(models) > 1:
+            continue  # busy upstream a moment ago, use the next model first
         bad = 0
         for i in range(tries):
             try:
@@ -622,12 +648,19 @@ def verify_grounding(post, source):
 
 
 def write_post(title, source, recent):
+    system = WRITER_SYSTEM
+    if FACELESS and _small_model(IMAGE_MODELS[0]):
+        system += (
+            "\n\nFACELESS RULE (the image model distorts faces badly): in image_subject never show a face. The person is seen from "
+            "behind, in side silhouette, or only hands, tools and objects are visible. In image_scene name the exact era and place "
+            "(for example 'ancient Babylon, mudbrick yard, reed boats') so the picture is not drawn in modern clothes."
+        )
     user = (
         f"SOURCE ARTICLE TITLE: {title}\n\nSOURCE TEXT:\n{source}\n\n"
         f"Do NOT repeat or closely resemble any of these recent topics: {json.dumps(recent)}\n"
         "Write the post using ONLY the SOURCE TEXT. Return the JSON object now."
     )
-    return chat_json(WRITER_SYSTEM, user, WRITER_MODELS, 0.7, max_tokens=5000)
+    return chat_json(system, user, WRITER_MODELS, 0.7, max_tokens=5000)
 
 
 def check_faithful(post, source):
@@ -824,8 +857,10 @@ def build_post(recent, used):
 # ----------------------------------------------------------------- image
 NEGATIVE_SD = (
     "deformed, distorted face, ugly, bad anatomy, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, "
-    "blurry, lowres, text, watermark, logo, cartoon, anime, painting, 3d render, oversaturated, duplicate, cropped, crowd"
+    "blurry, lowres, text, watermark, logo, cartoon, anime, painting, 3d render, oversaturated, duplicate, cropped, crowd, "
+    "modern clothing, modern buildings, factory, cars, electric lights, straw hat"
 )
+FACELESS = os.environ.get("FACELESS", "1") == "1"
 IMAGE_QA = os.environ.get("IMAGE_QA", "1") == "1"
 QA_MODELS = _models("IMAGE_QA_MODEL", "")      # empty = automatic: free vision models
 QA_PROMPT = (
@@ -852,12 +887,13 @@ def _shorten(text, n):
 def build_image_prompt(post):
     """Large models: FLUX-style order. Small SD-1.5 models: short keyword prompt (CLIP reads only ~60 words)."""
     if _small_model(IMAGE_MODELS[0]):
-        subject = _shorten(post.get("image_subject") or post.get("image_prompt"), 18)
+        era = _shorten(f"{post.get('year') or ''} {post.get('country') or ''}", 4)
+        subject = _shorten(post.get("image_subject") or post.get("image_prompt"), 16)
         scene = _shorten(post.get("image_scene"), 10)
         comp = _shorten(post.get("image_composition") or "medium close-up, eye level", 6)
         light = _shorten(post.get("image_lighting") or "soft window light", 5)
-        return (f"{subject}, {scene}, {comp}, {light}, vintage documentary photo, 35mm film, "
-                "muted colors, film grain, sharp focus, detailed face")[:500]
+        return (f"{era}, {subject}, {scene}, {comp}, {light}, vintage documentary photo, 35mm film, "
+                "muted colors, film grain, sharp focus")[:500].lstrip(", ")
 
     def part(key):
         return str(post.get(key) or "").strip().rstrip(".")
