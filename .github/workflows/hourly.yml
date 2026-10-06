@@ -38,8 +38,8 @@ jobs:
           IMAGE_MODEL: ${{ vars.IMAGE_MODEL || 'lykon/dreamshaper-8-lcm' }}
           # text (writer, checker, image QA): pool of OpenRouter keys, one key per line or comma separated
           OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
-          WRITER_MODEL: ${{ vars.WRITER_MODEL || 'openai/gpt-4.1-mini,google/gemini-2.5-flash-lite' }}
-          CHECKER_MODEL: ${{ vars.CHECKER_MODEL || 'google/gemini-2.5-flash-lite,openai/gpt-4.1-mini' }}
+          WRITER_MODEL: ${{ vars.WRITER_MODEL || 'dots-studio/dots-3-note-preview:free' }}
+          CHECKER_MODEL: ${{ vars.CHECKER_MODEL || 'poolside/laguna-s-2.1:free,dots-studio/dots-3-note-preview:free' }}
           WEB_CHECK: ${{ vars.WEB_CHECK || '0' }}
           IMAGE_QA: ${{ vars.IMAGE_QA || '1' }}
           # channels
