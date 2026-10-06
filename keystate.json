@@ -1,25 +1,35 @@
 {
- "rr": 2,
+ "rr": 5,
  "keys": {
-  "6ddd3ce6": {
-   "dead_until": 1793856067,
-   "reason": "invalid or forbidden key"
+  "129f269c": {
+   "r429": 1,
+   "dead_until": 1791280683,
+   "reason": "rate limited for 2 minutes"
   },
-  "f380be3b": {
-   "dead_until": 1793856067,
-   "reason": "invalid or forbidden key"
+  "e1c7046e": {
+   "r429": 1,
+   "dead_until": 1791280702,
+   "reason": "rate limited for 2 minutes"
   },
-  "80a448b0": {
-   "dead_until": 1793856068,
-   "reason": "invalid or forbidden key"
+  "7b31fe5e": {
+   "r429": 1,
+   "dead_until": 1791280702,
+   "reason": "rate limited for 2 minutes"
   },
-  "59df6f90": {
-   "dead_until": 1793856068,
-   "reason": "invalid or forbidden key"
+  "cf1f4245": {
+   "r429": 1,
+   "dead_until": 1791280703,
+   "reason": "rate limited for 2 minutes"
   },
-  "fc356ef1": {
-   "dead_until": 1793856069,
-   "reason": "invalid or forbidden key"
+  "1255df0d": {
+   "r429": 1,
+   "dead_until": 1791280704,
+   "reason": "rate limited for 2 minutes"
+  },
+  "e6b7ba70": {
+   "r429": 1,
+   "dead_until": 1791280705,
+   "reason": "rate limited for 2 minutes"
   }
  },
  "demoted": {}
