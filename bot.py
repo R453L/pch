@@ -160,6 +160,8 @@ TOPIC RULE:
 - The story must be about money, prices, wages, jobs, banks, taxes, trade, currency or business history (currency and banking history ARE allowed).
 - NEVER choose topics about executions, crime and punishment, violence, war atrocities, disasters, tragedies or anything graphic or sensitive.
 
+JSON FORMAT: output valid JSON only. Inside string values write paragraph breaks as the escaped characters \n (never real line breaks) and write every double quote inside text as \" . No comments, no trailing commas.
+
 Return ONLY one JSON object, no markdown fences, with keys:
 skip, topic, fact, year, country, headline_lines (array), subhook, image_subject, image_scene, image_composition, image_lighting, caption, hashtags (array of exactly 2 relevant topical hashtags like "#MoneyHistory"), evidence (array described above)."""
 
@@ -210,13 +212,61 @@ def save_history(items):
     HISTORY.write_text(json.dumps(items[-400:], ensure_ascii=False, indent=1), encoding="utf-8")
 
 
+def _json_candidates(text):
+    """Yield every balanced top-level {...} block, ignoring braces inside strings."""
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] != "{":
+            i += 1
+            continue
+        depth, in_str, esc, j = 0, False, False, i
+        while j < n:
+            c = text[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+            elif c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    yield text[i : j + 1]
+                    break
+            j += 1
+        i = j + 1 if depth == 0 and j < n else i + 1
+
+
+def _parse_loose(candidate):
+    attempts = [candidate]
+    attempts.append(re.sub(r",\s*([}\]])", r"\1", candidate))  # trailing commas
+    attempts.append(attempts[-1].replace("\u201c", '"').replace("\u201d", '"'))  # smart quotes used as delimiters
+    for c in attempts:
+        try:
+            return json.loads(c, strict=False)  # strict=False allows raw line breaks inside strings
+        except ValueError:
+            continue
+    return None
+
+
 def extract_json(text):
     text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S)
-    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end == -1:
+    text = re.sub(r"```(?:json)?", "", text)
+    if "{" not in text:
         raise ValueError("no JSON found")
-    return json.loads(text[start : end + 1])
+    good = None
+    for cand in _json_candidates(text):
+        obj = _parse_loose(cand)
+        if isinstance(obj, dict) and obj:
+            good = obj  # keep the LAST valid object (final answer after any draft)
+    if good is None:
+        raise ValueError("invalid JSON (could not repair)")
+    return good
 
 
 # ---- OpenRouter key pool: many keys, round-robin, exhausted keys are parked automatically
@@ -323,7 +373,17 @@ def or_call(messages, model, temperature=0.3, max_tokens=800, plugins=None):
             log(f"[openrouter {fp}] {model} ok ({usage.get('total_tokens', '?')} tokens)")
             if fp in _KS["keys"]:
                 _KS["keys"][fp]["r429"] = 0
-            return data["choices"][0]["message"].get("content") or ""
+            ch = data["choices"][0]
+            msg = ch.get("message") or {}
+            content = msg.get("content") or ""
+            if not content.strip():
+                reasoning = msg.get("reasoning") or ""
+                log(f"[openrouter {fp}] {model} returned EMPTY content (finish_reason={ch.get('finish_reason')}, "
+                    f"reasoning_chars={len(reasoning)}); if finish_reason is 'length' the token limit was too small")
+                content = reasoning  # some reasoning models leave the final JSON in the reasoning field
+            elif ch.get("finish_reason") == "length":
+                log(f"[openrouter {fp}] {model} was cut off at the token limit")
+            return content
         text = str(err or r.text)[:200]
         last = f"HTTP {code}: {text}"
         log(f"[openrouter {fp}] {model} failed: {last}")
@@ -392,7 +452,7 @@ def _score(m):
         score += 3
     if SLOW_NAME.search(mid) or m.get("reasoning"):
         score -= 20
-    for pref in _models("PREFER_MODELS", "poolside/laguna-s-2.1:free"):
+    for pref in _models("PREFER_MODELS", ""):
         if pref.lower() in mid:
             score += 100
     return score
@@ -484,8 +544,9 @@ def chat_json(system, user, models, temperature, tries=2, max_tokens=3000, plugi
             except ValueError as e:
                 last = e
                 bad += 1
-                snippet = (raw or "").strip().replace("\n", " ")[:300]
-                log(f"[{model}] bad JSON ({i + 1}/{tries}): {e} | reply was: {snippet!r}")
+                flat = (raw or "").strip().replace("\n", " ")
+                snippet = flat[:240] + (" ... " + flat[-120:] if len(flat) > 400 else flat[240:])
+                log(f"[{model}] bad JSON ({i + 1}/{tries}): {e} | reply length {len(flat)} | reply was: {snippet!r}")
         if bad >= tries:
             _demote(model, 6 * 3600)
     raise RuntimeError(f"no model returned valid JSON: {last}")
