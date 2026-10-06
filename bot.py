@@ -452,7 +452,7 @@ def _score(m):
         score += 3
     if SLOW_NAME.search(mid) or m.get("reasoning"):
         score -= 20
-    for pref in _models("PREFER_MODELS", ""):
+    for pref in _models("PREFER_MODELS", "poolside/laguna-s-2.1:free"):
         if pref.lower() in mid:
             score += 100
     return score
