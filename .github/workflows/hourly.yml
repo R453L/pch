@@ -33,21 +33,29 @@ jobs:
       - name: Generate and send post
         run: python bot.py
         env:
+          # images: Pollinations
           POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+          IMAGE_MODEL: ${{ vars.IMAGE_MODEL || 'lykon/dreamshaper-8-lcm' }}
+          # text (writer, checker, image QA): pool of OpenRouter keys, one key per line or comma separated
+          OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
+          WRITER_MODEL: ${{ vars.WRITER_MODEL || 'openai/gpt-4.1-mini,google/gemini-2.5-flash-lite' }}
+          CHECKER_MODEL: ${{ vars.CHECKER_MODEL || 'google/gemini-2.5-flash-lite,openai/gpt-4.1-mini' }}
+          WEB_CHECK: ${{ vars.WEB_CHECK || '0' }}
+          IMAGE_QA: ${{ vars.IMAGE_QA || '1' }}
+          # channels
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TEXT_MODEL: ${{ vars.TEXT_MODEL || 'respan/span-01-lite' }}
-          IMAGE_MODEL: ${{ vars.IMAGE_MODEL || 'flux' }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
 
-      - name: Save topic history
+      - name: Save topic history and key state
         shell: bash
         run: |
           set -e
           git config --global user.name "pch-bot"
           git config --global user.email "pch-bot@users.noreply.github.com"
-          git add history.json
+          git add history.json || true
+          git add keystate.json || true
           if ! git diff --cached --quiet; then
             git commit -m "bot: update history [skip ci]"
             git pull --rebase origin "${GITHUB_REF_NAME:-main}" || true
