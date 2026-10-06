@@ -27,8 +27,8 @@ def _models(name, default):
 
 
 # comma-separated lists: the first model is tried first, the next ones are fallbacks
-WRITER_MODELS = _models("WRITER_MODEL", "dots-studio/dots-3-note-preview:free")    # empty = automatic: best free models
-CHECKER_MODELS = _models("CHECKER_MODEL", "poolside/laguna-s-2.1:free")  # empty = automatic: a different free model family
+WRITER_MODELS = _models("WRITER_MODEL", "")    # empty = automatic: best free models
+CHECKER_MODELS = _models("CHECKER_MODEL", "")  # empty = automatic: a different free model family
 IMAGE_MODELS = _models("IMAGE_MODEL", "lykon/dreamshaper-8-lcm")  # comma list = fallback order
 PAGE_NAME = os.environ.get("PAGE_NAME", "Pocket Change History")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
@@ -378,7 +378,7 @@ def _score(m):
     if "instruct" in mid or "chat" in mid:
         score += 3
     if SLOW_NAME.search(mid):
-        score -= 8
+        score -= 20
     for pref in _models("PREFER_MODELS", ""):
         if pref.lower() in mid:
             score += 100
