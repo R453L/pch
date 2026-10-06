@@ -36,10 +36,15 @@ jobs:
           # images: Pollinations
           POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
           IMAGE_MODEL: ${{ vars.IMAGE_MODEL || 'lykon/dreamshaper-8-lcm' }}
-          # text (writer, checker, image QA): pool of OpenRouter keys, one key per line or comma separated
+          # text (writer, checker, image QA): pool of OpenRouter keys, one per line or comma separated
           OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
-          WRITER_MODEL: ${{ vars.WRITER_MODEL || 'dots-studio/dots-3-note-preview:free' }}
-          CHECKER_MODEL: ${{ vars.CHECKER_MODEL || 'poolside/laguna-s-2.1:free,dots-studio/dots-3-note-preview:free' }}
+          # models are chosen automatically (best FREE ones). Set these Variables only to override:
+          WRITER_MODEL: ${{ vars.WRITER_MODEL || '' }}
+          CHECKER_MODEL: ${{ vars.CHECKER_MODEL || '' }}
+          IMAGE_QA_MODEL: ${{ vars.IMAGE_QA_MODEL || '' }}
+          PREFER_MODELS: ${{ vars.PREFER_MODELS || '' }}
+          # optional paid safety net, used only if every free model fails (leave empty to never spend credit)
+          PAID_FALLBACK_MODEL: ${{ vars.PAID_FALLBACK_MODEL || '' }}
           WEB_CHECK: ${{ vars.WEB_CHECK || '0' }}
           IMAGE_QA: ${{ vars.IMAGE_QA || '1' }}
           # channels
