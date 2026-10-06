@@ -1,0 +1,26 @@
+{
+ "rr": 1,
+ "keys": {
+  "bac272b5": {
+   "dead_until": 1791331500,
+   "reason": "no credit (try again tomorrow)"
+  },
+  "ca4f9763": {
+   "dead_until": 1791331500,
+   "reason": "no credit (try again tomorrow)"
+  },
+  "6587a417": {
+   "dead_until": 1791331500,
+   "reason": "no credit (try again tomorrow)"
+  },
+  "4269086a": {
+   "dead_until": 1791331500,
+   "reason": "no credit (try again tomorrow)"
+  },
+  "aef1dc87": {
+   "dead_until": 1791331500,
+   "reason": "no credit (try again tomorrow)"
+  }
+ },
+ "demoted": {}
+}
