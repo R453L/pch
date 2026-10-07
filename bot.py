@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import requests
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 API = "https://gen.pollinations.ai"
 KEY = os.environ.get("POLLINATIONS_API_KEY", "")
@@ -647,6 +647,7 @@ MONEY_WORDS = re.compile(
 MIN_MONEY_DENSITY = float(os.environ.get("MIN_MONEY_DENSITY", "3"))   # money words per 1,000 characters
 MIN_MONEY_WORDS = int(os.environ.get("MIN_MONEY_WORDS", "8"))
 SHOW_SUBHOOK = os.environ.get("SHOW_SUBHOOK", "0") == "1"
+STRICT_RULES = os.environ.get("STRICT_RULES", "0") == "1"   # 1 = copy/structure/percentage rules reject posts
 SENSITIVE_TITLE = re.compile(
     r"racis|nudity|murder|assassin|massacre|genocide|rape|sexual|porn|suicide|execution|terror|war crime|holocaust|slavery|rasputin|"
     r"abuse|torture|lynch|nazi|fascis|communis|genital|prostitut|drug|cocaine|heroin|opium|election|referendum|impeach|political part",
@@ -756,12 +757,15 @@ def verify_grounding(post, source):
 
 def write_post(title, source, recent):
     system = WRITER_SYSTEM
-    if FACELESS and _small_model(IMAGE_MODELS[0]):
-        system += (
-            "\n\nFACELESS RULE (the image model distorts faces badly): in image_subject never show a face. The person is seen from "
-            "behind, in side silhouette, or only hands, tools and objects are visible. In image_scene name the exact era and place "
-            "(for example 'ancient Babylon, mudbrick yard, reed boats') so the picture is not drawn in modern clothes."
-        )
+    if _small_model(IMAGE_MODELS[0]):
+        if FACELESS:
+            system += ("\n\nFACELESS RULE: in image_subject never show a face. The person is seen from behind, in silhouette, "
+                       "or only hands, tools and objects are visible. Name the exact era and place in image_scene.")
+        else:
+            system += ("\n\nPORTRAIT RULE (this image model draws ONE close portrait best): image_subject is ONE person as a "
+                       "head-and-shoulders portrait, looking at the camera or slightly to the side, in period clothing for the exact year "
+                       "and place, with ONE simple prop (a blank paper, a coin, a tool). image_scene is a plain studio wall or a simple "
+                       "window, and it names the era and place (for example 'ancient Babylon' or '1920s Kentucky coal camp').")
     user = (
         f"SOURCE ARTICLE TITLE: {title}\n\nSOURCE TEXT:\n{source}\n\n"
         f"Do NOT repeat or closely resemble any of these recent topics: {json.dumps(recent)}\n"
@@ -901,7 +905,7 @@ def validate_post(post):
     if not 6 <= words <= 15:
         return f"headline word count {words}"
     cwords = len(post["caption"].split())
-    if cwords < 170 or cwords > 340:
+    if cwords < 120 or cwords > 450:
         return f"caption word count {cwords}"
     cap = re.sub(r"\s?\[\d{1,2}\]", "", post["caption"])
     cap = re.sub(r"\s*[\u2014\u2013]\s*", ", ", cap)  # no em/en dashes (AI tell)
@@ -978,10 +982,16 @@ def build_post(recent, used):
                     raise ValueError(f"missing {key}")
             if not (post.get("image_subject") or post.get("image_prompt")):
                 raise ValueError("missing image fields")
-            problem = validate_post(post) or check_originality(post, source)
+            problem = validate_post(post)
             if problem:
                 log("rejected:", problem)
                 continue
+            note = check_originality(post, source)
+            if note:
+                if STRICT_RULES:
+                    log("rejected:", note)
+                    continue
+                log("note (not blocking):", note)
             problems = verify_grounding(post, source)
             if problems:
                 hard = [
@@ -1027,8 +1037,9 @@ NEGATIVE_SD = (
     "blurry, lowres, text, watermark, logo, cartoon, anime, painting, 3d render, oversaturated, duplicate, cropped, crowd, "
     "modern clothing, modern buildings, factory, cars, electric lights, straw hat"
 )
-FACELESS = os.environ.get("FACELESS", "1") == "1"
+FACELESS = os.environ.get("FACELESS", "0") == "1"
 IMAGE_QA = os.environ.get("IMAGE_QA", "1") == "1"
+GUIDANCE = os.environ.get("GUIDANCE", "2")   # LCM models want about 1-2; "0" = do not send
 QA_MODELS = _models("IMAGE_QA_MODEL", "")      # empty = automatic: free vision models
 QA_PROMPT = (
     "You are a strict quality reviewer for AI-generated vintage photographs. Reject the image if you see ANY of: "
@@ -1057,19 +1068,29 @@ def _shorten(text, n):
     return " ".join(str(text or "").replace("\n", " ").split()[:n]).rstrip(".,;")
 
 
+def _era_mode(post):
+    """'mono' (sepia/black-and-white) before 1950, 'faded' colour film after. Old styles hide the weaknesses of a small model."""
+    y = str(post.get("year") or "")
+    m = re.search(r"\d{3,4}", y)
+    if "bc" in y.lower() or not m:
+        return "mono"
+    return "faded" if int(m.group()) >= 1950 else "mono"
+
+
 def build_image_prompt(post, variant=0):
     """Large models: FLUX-style order. Small SD-1.5 models: short keyword prompt (CLIP reads only ~60 words)."""
     if _small_model(IMAGE_MODELS[0]):
         era = _shorten(f"{post.get('year') or ''} {post.get('country') or ''}", 4)
         subject = _shorten(post.get("image_subject") or post.get("image_prompt"), 16)
         scene = _shorten(post.get("image_scene"), 10)
-        comp = _shorten(post.get("image_composition") or "medium close-up, eye level", 6)
         light = _shorten(post.get("image_lighting") or "soft window light", 5)
+        style = ("black and white photograph, sepia tone, antique tintype studio portrait, grainy" if _era_mode(post) == "mono"
+                 else "faded color photograph, 1970s film look, soft grain")
         if variant == 1:  # objects only: far less distortion than people
-            return (f"{era}, close-up still life of old paper documents, coins and a pen on a worn wooden table, {scene}, {light}, "
-                    "vintage documentary photo, 35mm film, muted colors, film grain, sharp focus")[:500].lstrip(", ")
-        return (f"{era}, {subject}, {scene}, {comp}, {light}, vintage documentary photo, 35mm film, "
-                "muted colors, film grain, sharp focus")[:500].lstrip(", ")
+            return (f"{era}, {style}, close-up still life of old paper documents, coins and a pen on a worn wooden table, "
+                    f"{light}, sharp focus")[:500].lstrip(", ")
+        return (f"{era}, {style}, {subject}, {scene}, head and shoulders portrait, {light}, plain background, "
+                "sharp focus, detailed face")[:500].lstrip(", ")
 
     def part(key):
         return str(post.get(key) or "").strip().rstrip(".")
@@ -1095,13 +1116,15 @@ def _fetch_candidate(prompt, tag):
         neg = NEGATIVE_SD if _small_model(model) else NEGATIVE_PROMPT
         seed = random.randint(1, 10**8)
         params = f"model={quote(model, safe='')}&width={gw}&height={gh}&seed={seed}&nologo=true"
-        if i < 2:  # last try drops the negative prompt in case the model rejects it
+        if i == 0 and _small_model(model) and GUIDANCE not in ("", "0"):
+            params += f"&guidance_scale={GUIDANCE}"  # first try only; later tries drop it in case the server rejects it
+        if i < 2:  # last try drops the negative prompt too
             params += f"&negative_prompt={quote(neg)}"
         try:
             r = requests.get(f"{API}/image/{quote(prompt)}?{params}", headers={"Authorization": f"Bearer {KEY}"}, timeout=240)
             if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
                 img = Image.open(io.BytesIO(r.content)).convert("RGB")
-                log(f"image candidate ok (model {model}, {img.size[0]}x{img.size[1]})")
+                log(f"image candidate ok (model {model}, {img.size[0]}x{img.size[1]}, try {i + 1}, guidance={'sent' if 'guidance_scale' in params else 'not sent'})")
                 return ImageOps.fit(img, (W, H), method=Image.LANCZOS, centering=(0.5, 0.4)), _small_model(model)
             last = f"HTTP {r.status_code} {r.text[:160]}"
         except Exception as e:  # noqa: BLE001
@@ -1111,11 +1134,36 @@ def _fetch_candidate(prompt, tag):
     raise RuntimeError(f"image generation failed: {last}")
 
 
-def _finish(img, upscaled):
+VINTAGE_GRADE = os.environ.get("VINTAGE_GRADE", "1") == "1"
+
+
+def _vintage(img, mode):
+    """Sepia (or faded colour) toning, vignette, grain and a few dust specks: reads as an old archive photo and hides softness."""
+    w, h = img.size
+    if mode == "mono":
+        g = ImageOps.autocontrast(img.convert("L"), cutoff=1)
+        g = ImageEnhance.Contrast(g).enhance(1.12)
+        out = ImageOps.colorize(g, black=(18, 11, 6), white=(244, 230, 201), mid=(138, 108, 76))
+    else:
+        out = ImageEnhance.Color(img).enhance(0.78)
+        out = Image.blend(out, ImageChops.multiply(out, Image.new("RGB", (w, h), (255, 232, 200))), 0.35)
+    edge = Image.radial_gradient("L").resize((w, h)).point(lambda v: int(v * 0.55))  # dark corners
+    out = Image.composite(ImageEnhance.Brightness(out).enhance(0.45), out, edge)
+    out = Image.blend(out, Image.effect_noise((w, h), 34).convert("RGB"), 0.06)  # film grain
+    d = ImageDraw.Draw(out)
+    for _ in range(40):  # dust specks
+        x, y, r = random.randint(0, w - 1), random.randint(0, h - 1), random.choice((1, 1, 2))
+        d.ellipse([x, y, x + r, y + r], fill=random.choice(((236, 226, 204), (30, 22, 14))))
+    return out
+
+
+def _finish(img, upscaled, mode="mono"):
     img = ImageEnhance.Contrast(img).enhance(1.06)
-    img = ImageEnhance.Color(img).enhance(1.05)
     img = img.filter(ImageFilter.UnsharpMask(radius=1.4 if upscaled else 1.2, percent=80 if upscaled else 65, threshold=3))
-    if upscaled:  # a little film grain hides the softness of an upscaled 512 px image
+    if upscaled and VINTAGE_GRADE:
+        return _vintage(img, mode)
+    img = ImageEnhance.Color(img).enhance(1.05)
+    if upscaled:
         img = Image.blend(img, Image.effect_noise((W, H), 30).convert("RGB"), 0.05)
     return img
 
@@ -1165,6 +1213,7 @@ def generate_image(post):
     """Up to N candidates (people first, then object still-lifes); keep the first that passes QA, else the best scored."""
     best, best_score, best_up = None, -1.0, False
     qa_failures = 0
+    mode = _era_mode(post)
     for n in range(max(1, int(os.environ.get("IMAGE_CANDIDATES", "5") or 5))):
         prompt = build_image_prompt(post, variant=1 if n >= 2 else 0)
         try:
@@ -1173,7 +1222,7 @@ def generate_image(post):
             log(e)
             continue
         if not IMAGE_QA:
-            return _finish(img, up)
+            return _finish(img, up, mode)
         verdict = None if qa_failures >= 2 else vision_check(img)
         if verdict is None:
             if IMAGE_QA and qa_failures < 2:
@@ -1188,12 +1237,12 @@ def generate_image(post):
                 score = 8.0 if ok else 3.0
             log(f"image QA #{n + 1}: ok={ok} score={score} problems={verdict.get('problems')}")
             if ok and score >= 6:
-                return _finish(img, up)
+                return _finish(img, up, mode)
         if score > best_score:
             best, best_score, best_up = img, score, up
     if best is not None:
         log(f"no image passed QA; using the best candidate (score {best_score})")
-        return _finish(best, best_up)
+        return _finish(best, best_up, mode)
     raise RuntimeError("image generation failed (no candidate)")
 
 
