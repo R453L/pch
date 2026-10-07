@@ -1,7 +1,8 @@
 {
- "rr": 86,
+ "rr": 95,
  "keys": {},
  "demoted": {
-  "nvidia/nemotron-3-super-120b-a12b:free": 1791385393
+  "nvidia/nemotron-3-super-120b-a12b:free": 1791385393,
+  "nvidia/nemotron-3-ultra-550b-a55b:free": 1791396084
  }
 }
