@@ -149,5 +149,12 @@
   "source": "Company scrip",
   "year": "late 1800s",
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-07T00:01+00:00",
+  "topic": "Tariff Act of 1890",
+  "source": "McKinley Tariff",
+  "year": "1890",
+  "country": "United States"
  }
 ]
