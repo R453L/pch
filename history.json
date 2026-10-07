@@ -156,5 +156,12 @@
   "source": "McKinley Tariff",
   "year": "1890",
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-07T03:01+00:00",
+  "topic": "Lazarus department store",
+  "source": "Lazarus (department store)",
+  "year": "1929",
+  "country": "USA"
  }
 ]
