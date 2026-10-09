@@ -191,5 +191,12 @@
   "source": "Wall Street crash of 1929",
   "year": 1929,
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-09T12:02+00:00",
+  "topic": "Banking history",
+  "source": "Overend, Gurney and Company",
+  "year": "1866",
+  "country": "UK"
  }
 ]
