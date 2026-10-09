@@ -29,7 +29,7 @@ def _models(name, default):
 # comma-separated lists: the first model is tried first, the next ones are fallbacks
 WRITER_MODELS = _models("WRITER_MODEL", "")    # empty = automatic: best free models
 CHECKER_MODELS = _models("CHECKER_MODEL", "")  # empty = automatic: a different free model family
-IMAGE_MODELS = _models("IMAGE_MODEL", "lykon/dreamshaper-8-lcm")  # comma list = fallback order
+IMAGE_MODELS = _models("IMAGE_MODEL", "flux,lykon/dreamshaper-8-lcm")  # best first; the next ones are used if it fails
 PAGE_NAME = os.environ.get("PAGE_NAME", "Pocket Change History")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
 WATERMARK = os.environ.get("WATERMARK", "AI-generated illustration")
@@ -106,7 +106,7 @@ SOURCE-GROUNDING RULES (absolute):
 - You receive SOURCE TEXT from Wikipedia. Use ONLY facts that are stated in the SOURCE TEXT. Never add a number, date, amount, name, cause or "first/only/most" claim that the SOURCE TEXT does not state. Use no outside knowledge for facts.
 - Write every number, date and amount EXACTLY as it appears in the SOURCE TEXT (if the source says "two cents", write "two cents"). Do no arithmetic and no conversions.
 - Every proper name (law, institution, company, person, place) in your caption must appear in the SOURCE TEXT.
-- Pick the single most surprising fact with a number and a year that the SOURCE TEXT clearly states and that is about money, prices, wages, jobs, banks, taxes, trade or business. If the SOURCE TEXT has no such fact, return {{"skip": true, "reason": "..."}}.
+- Pick the single most surprising fact with a number and a year that the SOURCE TEXT clearly states and that is about money, prices, wages, jobs, banks, taxes, trade or business. Use the most interesting concrete fact the SOURCE TEXT states. Return {{"skip": true, "reason": "..."}} only if the article contains no such fact at all.
 - "evidence": 3 to 6 objects {{"claim": "...", "quote": "..."}} where quote is copied WORD FOR WORD from the SOURCE TEXT (6 to 30 words). Together they must cover EVERY number, year and name used in the headline and in the REVEAL paragraph.
 - The SCENE paragraph must start with "Picture" or "Imagine" and describe atmosphere only, with no numbers, dates or names that are not in the SOURCE TEXT.
 - Never put citation markers like [1] or URLs in any text field.
@@ -124,12 +124,12 @@ FACT RULES:
 - Prefer WELL-KNOWN, widely documented facts (famous price comparisons, well-known wage figures, famous founding stories, documented laws, famous inventions of payment). Approximate numbers are fine if you write "about" or "around".
 
 IMAGE RULES:
-- The picture must show the STORY itself, like an archive photograph of that very moment. A bank story shows the bank, its hall, counter or vault. A miners story shows the mine and the miners. A ship story shows the ship and the yard. A coin or paper-money story shows the coins or notes. A law or tax story shows the place or the object where it mattered. Use whatever the story needs: interiors, buildings, streets, workplaces, machines, objects, landscapes, crowds, even underground or the sky. There is no limit on imagination.
-- Give TWO different visual ideas for the same story: image_prompt_a is the main picture, image_prompt_b is another way to show the same story. Each is ONE plain visual description of 25-40 words: the key subject FIRST, then the place, the exact era and country, the light and the mood.
-- The picture contains no readable writing, signs or labels. No real brand names or logos, no real banknote designs.
+- The picture must show the STORY itself, like a real archive photograph of that very moment, in the style of a rich documentary scene. A bank story shows the bank, its hall, counter or vault. A tax story shows the office, the clerk and the person paying. A price story shows the shop, the counter and the customer. A miners story shows the mine and the miners. Use whatever the story needs: interiors, buildings, streets, workplaces, vehicles, machines, objects, landscapes, crowds, even underground or the sky. There is no limit on imagination.
+- Give TWO different visual ideas for the same story: image_prompt_a is the main picture, image_prompt_b is another way to show the same story. Each is ONE vivid visual description of 40-70 words: the key subject FIRST, then the people and what they do, the place, the exact era and country, period-correct clothes and objects, the light and the mood.
+- When the story is about a price, rate, wage or tax you may include ONE small prop with a very short text (1 to 3 short words or one number), for example a tag reading "3d" or a card reading "42 pounds". Nothing else in the picture has writing. No real brand names or logos, no real banknote designs.
 
 HEADLINE SOURCE RULE (accuracy):
-- Build the headline and the main claim ONLY from a sentence of the SOURCE TEXT whose meaning is completely clear. If a sentence is ambiguous (for example a percentage range where it is unclear what the percentage measures), do not use it for the headline or the main claim: pick another fact or return {{"skip": true, "reason": "ambiguous"}}.
+- Build the headline and the main claim ONLY from a sentence of the SOURCE TEXT whose meaning is completely clear. If a sentence is ambiguous (for example a percentage range where it is unclear what the percentage measures), do not use it for the headline or the main claim: pick another fact.
 - For any percentage, ratio or range, say exactly what it measures and who it applies to, and use cautious wording in the caption ("reportedly", "according to accounts", "about").
 - Never turn an advance, a rate or a fee into a claim that people were underpaid, cheated or exploited unless the SOURCE TEXT says exactly that.
 
@@ -137,7 +137,7 @@ HEADLINE RULES:
 - headline_lines: 2 or 3 ALL-CAPS lines forming ONE short curiosity hook, 8-12 words in total, each line MAX 28 characters. It teases a surprise, it does NOT retell the whole fact or the news. Use only a year or a number, never a full date (never "MARCH 14 2025"). Never name living people.
 - Examples: ["A [5-CENT] STAMP", "ONCE DECIDED WHETHER", "A BANK SURVIVED"] or ["IN [1936], HOMES PAID", "[2.4D] PER ELECTRICITY UNIT"].
 - Red highlight: wrap ONE key word or number (two short groups at most) in [square brackets]. The brackets must hug the words: put a currency symbol INSIDE ("[$2,000,000]", never "$[2,000,000]") and punctuation OUTSIDE ("[1930],", never "[1930,]"). Never put a whole line in brackets. Do not use parentheses.
-- subhook: return an empty string "" (no subline is shown under the headline).
+- subhook: 3-6 words, ALL CAPS, a short teaser shown under the headline. It adds NO new fact (for example "THE TAX ROSE WITH HORSEPOWER").
 - The headline must be truthful and supported by the source.
 
 CAPTION RULES (viral storytelling written to a high SEO-style quality bar):
@@ -297,19 +297,13 @@ def _fp(key):
 
 
 def load_keystate():
+    """Nothing is remembered between runs: a key that was tired yesterday gets a fresh chance today."""
     global _KS
-    try:
-        _KS = json.loads(KEYSTATE.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        _KS = {"rr": 0, "keys": {}}
-    _KS.setdefault("rr", 0)
-    _KS.setdefault("keys", {})
+    _KS = {"rr": random.randrange(1000), "keys": {}, "demoted": {}}
 
 
 def save_keystate():
-    live = {_fp(k) for k in OR_KEYS}
-    _KS["keys"] = {k: v for k, v in _KS["keys"].items() if k in live}
-    KEYSTATE.write_text(json.dumps(_KS, indent=1), encoding="utf-8")
+    pass
 
 
 def _parked(fp):
@@ -347,8 +341,10 @@ def or_call(messages, model, temperature=0.3, max_tokens=800, plugins=None):
     if not OR_KEYS:
         raise RuntimeError("no OpenRouter keys configured (secret OPENROUTER_API_KEYS)")
     usable = keys_usable()
-    if not usable:
-        raise RuntimeError("all OpenRouter keys are out of credit or cooling down")
+    if not usable:  # never give up without trying: forget the rests and use every key again
+        log("all OpenRouter keys were resting; trying them all again")
+        _KS["keys"].clear()
+        usable = keys_usable()
     start = _KS["rr"] % len(usable)
     _KS["rr"] += 1
     order = usable[start:] + usable[:start]
@@ -543,7 +539,7 @@ def setup_models():
         others = [m for m in ranked if _family(m) != fam][:4]
         CHECKER_MODELS = list(dict.fromkeys((others or ranked[:4]) + ranked[:2] + paid))
     if not QA_MODELS:
-        QA_MODELS = [m for m in vision if not _demoted(m)][:5]
+        QA_MODELS = [m for m in vision if not _demoted(m)][:3]
     log("writer models:", WRITER_MODELS[:3], "| checker models:", CHECKER_MODELS[:3], "| image QA models:", QA_MODELS[:2])
 
 
@@ -640,7 +636,7 @@ MONEY_WORDS = re.compile(
 )
 MIN_MONEY_DENSITY = float(os.environ.get("MIN_MONEY_DENSITY", "3"))   # money words per 1,000 characters
 MIN_MONEY_WORDS = int(os.environ.get("MIN_MONEY_WORDS", "8"))
-SHOW_SUBHOOK = os.environ.get("SHOW_SUBHOOK", "0") == "1"
+SHOW_SUBHOOK = os.environ.get("SHOW_SUBHOOK", "1") == "1"
 STRICT_RULES = os.environ.get("STRICT_RULES", "0") == "1"   # 1 = copy/structure/percentage rules reject posts
 SENSITIVE_TITLE = re.compile(
     r"racis|nudity|murder|assassin|massacre|genocide|rape|sexual|porn|suicide|execution|terror|war crime|holocaust|slavery|rasputin|"
@@ -649,43 +645,76 @@ SENSITIVE_TITLE = re.compile(
 )
 
 
-def pick_source(used):
-    """Random money-history search -> a real Wikipedia article we have not used yet."""
-    cat = random.randrange(len(CATEGORIES))
-    kw = random.choice(CATEGORY_KEYWORDS[cat])
-    query = kw if random.random() < 0.5 else f"{kw} {random.choices(WIKI_COUNTRIES, COUNTRY_WEIGHTS)[0]}"
-    log("wikipedia search:", query)
-    titles = [
-        t
-        for t in wiki_search(query, 15)
-        if not re.match(r"(List of|Timeline of|Index of|Outline of)", t)
-        and not BANNED_TITLE.search(t)
-        and not SENSITIVE_TITLE.search(t)
-        and t not in used
-    ][:8]
-    random.shuffle(titles)
-    for t in titles[:4]:
+CURATED_TOPICS = [
+    # coins, notes, currency
+    "Penny Black", "Uniform Penny Post", "Guinea (coin)", "Farthing (British coin)", "Half crown (British coin)",
+    "Sixpence (British coin)", "Florin (British coin)", "Threepence (British coin)", "Shilling", "Decimal Day",
+    "Gold Standard Act", "Coinage Act of 1792", "Coinage Act of 1873", "Bland\u2013Allison Act", "Sherman Silver Purchase Act",
+    "United States Note", "Continental currency", "Confederate States dollar", "Fractional currency", "Gold Reserve Act",
+    "Executive Order 6102", "Gold standard", "Bimetallism", "Latin Monetary Union", "Scandinavian Monetary Union", "Banknote",
+    "Postal order", "Money order", "Postal Savings System", "Tally stick", "Bretton Woods system", "Nixon shock", "Rentenmark",
+    "Hyperinflation in the Weimar Republic", "Deutsche Mark", "Reichsmark", "Royal Mint", "United States Mint",
+    "Bureau of Engraving and Printing", "Royal Canadian Mint",
+    # banks, crises, markets
+    "Bank of England", "Bank of Amsterdam", "Medici Bank", "Bank of North America", "First Bank of the United States",
+    "Second Bank of the United States", "Federal Reserve Act", "Panic of 1907", "Panic of 1873", "Panic of 1837", "Panic of 1819",
+    "Overend, Gurney and Company", "Barings Bank", "Emergency Banking Act", "Glass\u2013Steagall Act", "Reconstruction Finance Corporation",
+    "Bank of Canada", "Bank of Japan", "Reichsbank", "Banque de France", "Reserve Bank of India", "South African Reserve Bank",
+    "Credit union", "Building society", "Savings bank", "Pawnbroker", "Wall Street crash of 1929", "South Sea Company", "Tulip mania",
+    "Mississippi Company", "Railway Mania", "New York Stock Exchange", "London Stock Exchange", "Buttonwood Agreement", "Bucket shop",
+    "Lloyd's of London", "Life insurance",
+    # companies and shops
+    "Dutch East India Company", "Hudson's Bay Company", "East India Company", "Sears", "Montgomery Ward", "F. W. Woolworth Company",
+    "Selfridges", "Harrods", "Macy's", "John Wanamaker", "Great Atlantic & Pacific Tea Company", "Piggly Wiggly", "Automat",
+    "Horn & Hardart", "Singer Corporation", "Pullman Company", "Company town", "Company scrip", "Truck wages", "Department store",
+    "General store", "Supermarket", "Five-and-dime", "Trading stamp", "S&H Green Stamps", "Mail order", "Rural Free Delivery",
+    "Nickelodeon", "Penny arcade", "Diners Club", "American Express", "Western Union", "Hire purchase", "Layaway",
+    # taxes and laws
+    "Window tax", "Stamp Act 1765", "Tea Act", "Salt tax", "Hearth tax", "Poll tax", "Whiskey Rebellion", "Tariff of Abominations",
+    "Smoot\u2013Hawley Tariff Act", "Revenue Act of 1932", "Sixteenth Amendment to the United States Constitution",
+    "Income tax in the United Kingdom", "Fair Labor Standards Act of 1938", "Davis\u2013Bacon Act", "Truck Acts", "Factory Acts",
+    "Corn Laws", "Navigation Acts", "Sumptuary law", "Usury", "Currency Act", "Sugar Act", "Townshend Acts",
+    # jobs and wages
+    "Lamplighter", "Rag-and-bone man", "Knocker-up", "Milkman", "Switchboard operator", "Matchgirls' strike of 1888", "Chimney sweep",
+    "Town crier", "Pinsetter", "Breaker boy", "Newsboy", "Elevator operator", "Ice trade", "Soda jerk", "Lector",
+    # events and everyday money
+    "California Gold Rush", "Klondike Gold Rush", "Comstock Lode", "Pony Express", "First transcontinental railroad", "Erie Canal",
+    "Panama Canal", "Suez Canal", "Great Exhibition", "Homestead Acts", "Rationing in the United Kingdom",
+    "Rationing in the United States", "War bond", "Liberty bond", "Premium Bond", "Piggy bank",
+]
+_TRIED = set()
+_LAST_SOURCE = []   # the last article we fetched, used by the emergency post
+
+
+def pick_source(used, level=0):
+    """A real Wikipedia article about money, prices, banks, taxes, jobs or business history.
+    Curated titles first (exact article, one request); a keyword search is only the backup."""
+    pool = [t for t in CURATED_TOPICS if t not in used and t not in _TRIED]
+    random.shuffle(pool)
+    for t in pool[:3]:
+        _TRIED.add(t)
         text = wiki_extract(t)
-        used.add(t)
-        money = len(MONEY_WORDS.findall(text))
-        density = money / max(len(text), 1) * 1000  # money words per 1,000 characters
-        yrs = [int(y) for y in YEAR_RE.findall(text)]
-        recent = sum(1 for y in yrs if y > RECENT_CUTOFF) / max(len(yrs), 1)
-        if (len(text) >= 1500 and len(yrs) >= 2 and money >= MIN_MONEY_WORDS and density >= MIN_MONEY_DENSITY
-                and recent <= 0.35):
-            log(f"article {t!r} accepted ({money} money words, {density:.1f} per 1,000 characters)")
+        if len(text) >= 1200:
+            log(f"article {t!r} accepted (curated, {len(text)} characters)")
+            _LAST_SOURCE[:] = [t, text]
             return t, text
-        why = []
-        if len(text) < 1500:
-            why.append(f"too short ({len(text)} characters)")
-        if len(YEAR_RE.findall(text)) < 2:
-            why.append("fewer than 2 years")
-        if money < MIN_MONEY_WORDS or density < MIN_MONEY_DENSITY:
-            why.append("not money-focused enough")
-        if recent > 0.35:
-            why.append(f"too recent ({recent:.0%} of the years are after {RECENT_CUTOFF})")
-        log(f"skipped article {t!r}: {', '.join(why)} ({money} money words, {density:.1f} per 1,000 characters)")
-    raise ValueError(f"no usable article for query {query!r}")
+        log(f"skipped curated title {t!r}: not found or too short")
+    cat = random.randrange(len(CATEGORIES))
+    query = random.choice(CATEGORY_KEYWORDS[cat]) + " history"
+    log("backup search:", query)
+    titles = [
+        t for t in wiki_search(query, 15)
+        if not re.match(r"(List of|Timeline of|Index of|Outline of)", t) and not BANNED_TITLE.search(t)
+        and not SENSITIVE_TITLE.search(t) and t not in used and t not in _TRIED
+    ][:6]
+    for t in titles[:3]:
+        _TRIED.add(t)
+        text = wiki_extract(t)
+        if len(text) >= 1500:
+            log(f"article {t!r} accepted (search, {len(text)} characters)")
+            _LAST_SOURCE[:] = [t, text]
+            return t, text
+    raise ValueError("no usable article this time")
 
 
 def _norm(s):
@@ -869,28 +898,34 @@ def rewrap_headline(lines, width=30):
     return rendered
 
 
-def validate_post(post):
-    lines = post["headline_lines"]
+def validate_post(post, level=0):
+    """level 0 = normal, 1 = relaxed, 2 = minimal. Formatting is always repaired; only level 0 is picky."""
+    lines = post.get("headline_lines")
     if isinstance(lines, str):
         lines = [lines]
-    if not isinstance(lines, list) or not lines:
-        return "headline missing"
+    if not isinstance(lines, list) or not [l for l in lines if str(l).strip()]:
+        if level == 0:
+            return "headline missing"
+        lines = [str(post.get("topic") or "MONEY HISTORY").upper()]
     lines = [fix_brackets(str(l)).strip() for l in lines if str(l).strip()]
     if len(lines) == 1 or len(lines) > 4 or any(len(re.sub(r"[\[\]]", "", l)) > 32 for l in lines):
         lines = rewrap_headline(lines)
-    lines = limit_red(lines)
-    if not 2 <= len(lines) <= 4:
-        return f"headline has {len(lines)} lines after wrapping"
+    lines = limit_red(lines)[:4]
     post["headline_lines"] = lines
     words = len(" ".join(lines).split())
-    years = [int(y) for y in YEAR_RE.findall(" ".join(lines))]
-    m_year = re.search(r"\d{4}", str(post.get("year") or ""))
-    if any(y > RECENT_CUTOFF for y in years) or (m_year and int(m_year.group()) > RECENT_CUTOFF and "bc" not in str(post.get("year")).lower()):
-        return f"too recent (limit {RECENT_CUTOFF})"
-    if not 6 <= words <= 15:
-        return f"headline word count {words}"
-    cwords = len(post["caption"].split())
-    if cwords < 120 or cwords > 450:
+    if level == 0:
+        years = [int(y) for y in YEAR_RE.findall(" ".join(lines))]
+        m_year = re.search(r"\d{4}", str(post.get("year") or ""))
+        if any(y > RECENT_CUTOFF for y in years) or (m_year and int(m_year.group()) > RECENT_CUTOFF and "bc" not in str(post.get("year")).lower()):
+            return f"too recent (limit {RECENT_CUTOFF})"
+        if not 6 <= words <= 15:
+            return f"headline word count {words}"
+    cwords = len(str(post.get("caption", "")).split())
+    if level == 0 and not 120 <= cwords <= 450:
+        return f"caption word count {cwords}"
+    if level == 1 and cwords < 60:
+        return f"caption word count {cwords}"
+    if level == 2 and cwords < 25:
         return f"caption word count {cwords}"
     cap = re.sub(r"\s?\[\d{1,2}\]", "", post["caption"])
     cap = re.sub(r"\s*[\u2014\u2013]\s*", ", ", cap)  # no em/en dashes (AI tell)
@@ -898,6 +933,28 @@ def validate_post(post):
     post["caption"] = cap
     post["headline_lines"] = ensure_highlight(lines)
     return None
+
+
+def scrub_numbers(post, source, title):
+    """Never publish an amount or year the source does not contain: drop such sentences, or use a neutral headline."""
+    known = numbers_in(source, False)
+
+    def unsupported(text):
+        return numbers_in(text, True) - known
+
+    if unsupported(" ".join(post["headline_lines"])):
+        log("headline had numbers that are not in the source; using a neutral headline")
+        post["headline_lines"] = ensure_highlight(rewrap_headline(["THE STORY OF", f"[{title.upper()}]"]))
+    kept, dropped = [], 0
+    for para in re.split(r"\n+", post["caption"]):
+        sents = re.split(r"(?<=[.?!])\s+", para.strip())
+        good = [x for x in sents if x and not unsupported(x)]
+        dropped += len(sents) - len(good)
+        if good:
+            kept.append(" ".join(good))
+    if dropped:
+        log(f"dropped {dropped} caption sentence(s) with numbers that are not in the source")
+    post["caption"] = "\n\n".join(kept) if kept else post["caption"]
 
 
 def add_hashtags(post):
@@ -948,72 +1005,83 @@ def check_originality(post, source):
     return None
 
 
+def emergency_post(title, source):
+    """Last resort without any AI: a plain, attributed post from the article's own opening lines."""
+    flat = re.sub(r"\s+", " ", re.sub(r"=+[^=]+=+", " ", source[:4000]))
+    sents = [x for x in re.split(r"(?<=[.!?])\s+", flat) if 40 < len(x) < 320][:4]
+    caption = "\n\n".join(sents) + f'\n\nWhat part of this surprises you most?\n\nSource: Wikipedia, "{title}"\n#PocketChangeHistory #MoneyHistory'
+    return {
+        "topic": title, "source_title": title, "year": "", "country": "",
+        "headline_lines": ensure_highlight(rewrap_headline(["THE STORY OF", f"[{title.upper()}]"])),
+        "subhook": "A PIECE OF MONEY HISTORY", "caption": caption,
+        "image_prompt_a": f"{title}, a historical scene about money and everyday life, people and period objects, documentary photograph",
+        "image_prompt_b": f"{title}, old objects and documents on a wooden table, soft window light",
+    }
+
+
 def build_post(recent, used):
+    """Tries hard, then softer, then softest, then a plain post: a run always ends with something worth publishing."""
     deadline = time.time() + RUN_BUDGET_MIN * 60
     for attempt in range(1, 13):
         if time.time() > deadline:
             log(f"time budget of {RUN_BUDGET_MIN:.0f} minutes used up")
             break
+        level = 0 if attempt <= 4 else (1 if attempt <= 8 else 2)
         try:
-            title, source = pick_source(used)
+            title, source = pick_source(used, level)
             used.add(title)
-            log(f"attempt {attempt}: source article: {title}")
+            log(f"attempt {attempt} (level {level}): source article: {title}")
             post = write_post(title, source, recent)
             if post.get("skip"):
                 log("writer skipped:", post.get("reason"))
                 continue
-            for key in ("headline_lines", "caption", "topic"):
-                if not post.get(key):
-                    raise ValueError(f"missing {key}")
-            if not (post.get("image_prompt_a") or post.get("image_subject") or post.get("image_prompt")):
-                raise ValueError("missing image fields")
-            problem = validate_post(post)
+            if not post.get("caption"):
+                raise ValueError("missing caption")
+            post.setdefault("topic", title)
+            if not post.get("topic"):
+                post["topic"] = title
+            problem = validate_post(post, level)
             if problem:
                 log("rejected:", problem)
                 continue
             note = check_originality(post, source)
             if note:
-                if STRICT_RULES:
-                    log("rejected:", note)
-                    continue
                 log("note (not blocking):", note)
-            problems = verify_grounding(post, source)
-            if problems:
-                hard = [
-                    p for p in problems
-                    if "numbers not in source" in p.lower()
-                    or ("quote not found in source" in p.lower() and len(p) > 60)
-                ]
+            if level == 0:
+                hard = [x for x in verify_grounding(post, source)
+                        if "numbers not in source" in x.lower() or ("quote not found in source" in x.lower() and len(x) > 60)]
                 if hard:
                     log("grounding failed:", hard)
                     continue
-            verdict = check_faithful(post, source)
-            if not verdict.get("faithful"):
-                unsupported = verdict.get("unsupported") or []
-                hard_unsupported = [
-                    u for u in unsupported
-                    if any(k in u.lower() for k in ("not in the source", "unsupported", "wrong", "missing", "not supported"))
-                ]
-                if hard_unsupported:
-                    log("checker: unsupported claims:", hard_unsupported)
-                    continue
-
-            try:
-                if float(verdict.get("hook_score", 0)) < 5:
-                    log("rejected: weak hook", verdict.get("hook_score"))
-                    continue
-            except (TypeError, ValueError):
-                pass
+                verdict = check_faithful(post, source)
+                if not verdict.get("faithful"):
+                    bad = [u for u in (verdict.get("unsupported") or [])
+                           if any(k in u.lower() for k in ("not in the source", "unsupported", "wrong", "missing", "not supported"))]
+                    if bad:
+                        log("checker: unsupported claims:", bad)
+                        continue
+                try:
+                    if float(verdict.get("hook_score", 0)) < 5:
+                        log("rejected: weak hook", verdict.get("hook_score"))
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            else:
+                scrub_numbers(post, source, title)
             post["source_title"] = title
-            post["confidence"] = "Grounded in Wikipedia source text"
+            post["confidence"] = f"level {level}"
             post["sources"] = [f"Wikipedia: {title}"]
             post["issues"] = []
             add_hashtags(post)
             return post
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log("attempt failed:", e)
-
-    raise RuntimeError("could not build a source-grounded post after 12 attempts")
+    if _LAST_SOURCE:
+        title, source = _LAST_SOURCE
+        log(f"EMERGENCY POST from the article {title!r}: the AI writer did not deliver")
+        post = emergency_post(title, source)
+        return post
+    raise RuntimeError("no article could be fetched (Wikipedia unreachable)")
 
 
 # ----------------------------------------------------------------- image
@@ -1062,24 +1130,31 @@ def _era_mode(post):
     return "faded" if int(m.group()) >= 1950 else "mono"
 
 
-def build_image_prompt(post, variant=0):
-    """The writer's scene for this story (idea A, or idea B on every second candidate), plus the old-photograph style."""
+def build_image_prompt(post, variant=0, model=None):
+    """The writer's scene for this story (idea A, or idea B on every second candidate), shaped for the model that will draw it."""
+    model = model or IMAGE_MODELS[0]
     text = (post.get("image_prompt_b") if variant == 1 and post.get("image_prompt_b") else post.get("image_prompt_a")) or ""
     if not text:  # older field names
         text = f"{post.get('image_subject') or post.get('image_prompt') or ''}, {post.get('image_scene') or ''}"
     era = _shorten(f"{post.get('year') or ''} {post.get('country') or ''}", 4)
-    if _small_model(IMAGE_MODELS[0]):  # SD-1.5 reads only about 60 words: key subject first
+    if _small_model(model):  # SD-1.5 reads only about 60 words: key subject first
         style = ("black and white archival photograph, sepia tone, early documentary photo, grainy" if _era_mode(post) == "mono"
                  else "faded color photograph, 1970s film look, soft grain")
         return f"{_shorten(text, 38)}, {era}, {style}, sharp focus, detailed"[:520].lstrip(", ")
-    return (f"{text.strip().rstrip('.')}. {era}. {STYLE_SUFFIX}. Sharp focus, natural look, fine film grain, photorealistic, "
-            "high detail. No text, no watermarks.")[:1500]
+    return (f"{text.strip().rstrip('.')}. {era}. {STYLE_SUFFIX}. Vertical 4:5 frame: the main subject sits in the upper two thirds "
+            "and the lowest part of the frame is a darker foreground such as a counter, table or floor. "
+            "Sharp focus, natural look, fine film grain, photorealistic, high detail. No watermarks.")[:1500]
 
 
-def _fetch_candidate(prompt, tag):
+_BAD_IMG = set()   # image models that refused us in this run (no credit, unknown model); skipped for the rest of the run
+
+
+def _fetch_candidate(post, variant, tag):
     last = None
     for i in range(3):
-        model = IMAGE_MODELS[(tag + i) % len(IMAGE_MODELS)]
+        models = [m for m in IMAGE_MODELS if m not in _BAD_IMG] or IMAGE_MODELS
+        model = models[min(i, len(models) - 1)]
+        prompt = build_image_prompt(post, variant, model)
         gw, gh = _gen_size(model)
         neg = NEGATIVE_SD if _small_model(model) else NEGATIVE_PROMPT
         seed = random.randint(1, 10**8)
@@ -1092,13 +1167,16 @@ def _fetch_candidate(prompt, tag):
             r = requests.get(f"{API}/image/{quote(prompt)}?{params}", headers={"Authorization": f"Bearer {KEY}"}, timeout=240)
             if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
                 img = Image.open(io.BytesIO(r.content)).convert("RGB")
-                log(f"image candidate ok (model {model}, {img.size[0]}x{img.size[1]}, try {i + 1}, guidance={'sent' if 'guidance_scale' in params else 'not sent'})")
+                log(f"image candidate ok (model {model}, {img.size[0]}x{img.size[1]}, try {i + 1})")
                 return ImageOps.fit(img, (W, H), method=Image.LANCZOS, centering=(0.5, 0.4)), _small_model(model)
             last = f"HTTP {r.status_code} {r.text[:160]}"
+            if r.status_code in (400, 401, 402, 403, 404) or "credit" in r.text.lower() or "pollen" in r.text.lower():
+                _BAD_IMG.add(model)
+                log(f"image model {model} refused ({last[:100]}); using the next one")
         except Exception as e:  # noqa: BLE001
             last = e
-        log(f"image call failed ({i + 1}/3, model {model}): {last}")
-        time.sleep(4 * (i + 1))
+        log(f"image call failed ({i + 1}/3, model {model}): {str(last)[:160]}")
+        time.sleep(3 * (i + 1))
     raise RuntimeError(f"image generation failed: {last}")
 
 
@@ -1181,17 +1259,20 @@ def vision_check(img, story=""):
 
 
 def generate_image(post):
-    """Up to N candidates, alternating the writer's two ideas for the story. Keep the first that passes QA, else the best scored."""
+    """A few candidates, alternating the writer's two ideas. First one that passes QA wins, else the best scored."""
     best, best_score, best_up = None, -1.0, False
     qa_failures = 0
+    image_failures = 0
     mode = _era_mode(post)
     story = re.sub(r"[\[\]]", "", " ".join(post.get("headline_lines") or []))
-    for n in range(max(1, int(os.environ.get("IMAGE_CANDIDATES", "5") or 5))):
-        prompt = build_image_prompt(post, variant=n % 2)
+    for n in range(max(1, int(os.environ.get("IMAGE_CANDIDATES", "3") or 3))):
         try:
-            img, up = _fetch_candidate(prompt, n)
+            img, up = _fetch_candidate(post, n % 2, n)
         except RuntimeError as e:
             log(e)
+            image_failures += 1
+            if image_failures >= 2 and best is None:
+                break  # the image service is down: use the text card instead of waiting longer
             continue
         if not IMAGE_QA:
             return _finish(img, up, mode)
@@ -1209,7 +1290,7 @@ def generate_image(post):
             except (TypeError, ValueError):
                 score = 8.0 if ok else 3.0
             if not on_topic:
-                score = min(score, 4.0)  # a clean picture of the wrong thing is still wrong
+                score = min(score, 4.0)
             log(f"image QA #{n + 1}: ok={ok} on_topic={on_topic} score={score} problems={verdict.get('problems')}")
             if ok and score >= 6:
                 return _finish(img, up, mode)
@@ -1219,6 +1300,16 @@ def generate_image(post):
         log(f"no image passed QA; using the best candidate (score {best_score})")
         return _finish(best, best_up, mode)
     raise RuntimeError("image generation failed (no candidate)")
+
+
+def fallback_background():
+    """If no picture can be made at all, the post still goes out on an old-paper style card."""
+    base = Image.new("RGB", (W, H), (96, 74, 52))
+    d = ImageDraw.Draw(base)
+    for y in range(H):
+        t = y / H
+        d.line([(0, y), (W, y)], fill=(int(120 - 50 * t), int(92 - 38 * t), int(64 - 26 * t)))
+    return _vintage(base, "mono")
 
 
 def load_font(size):
@@ -1382,38 +1473,48 @@ def run():
     recent = [h["topic"] for h in history[-40:]]
     used = {h.get("source") for h in history if h.get("source")}
     try:
-        post = build_post(recent, used)
+        post = build_post(recent, used)  # always returns something unless Wikipedia itself is unreachable
     except RuntimeError as e:
-        log("NO POST THIS RUN (nothing was sent):", e)
+        log("NO POST THIS RUN (Wikipedia could not be reached):", e)
         return
     log("topic:", post["topic"])
 
     try:
-        img = generate_image(post)
-    except RuntimeError as e:
-        log("NO POST THIS RUN (image failed, nothing was sent):", e)
-        return
-    img = overlay_text(img, post["headline_lines"], post.get("subhook", "") if SHOW_SUBHOOK else "")
-    send_to_telegram(img, post)
+        photo = generate_image(post)
+    except Exception as e:  # noqa: BLE001
+        log("no picture could be made, using the text card:", e)
+        photo = fallback_background()
+    img = overlay_text(photo, post["headline_lines"], post.get("subhook", "") if SHOW_SUBHOOK else "")
+
+    sent = False
+    try:
+        send_to_telegram(img, post)
+        sent = True
+    except Exception as e:  # noqa: BLE001
+        log("TELEGRAM ERROR:", e)
     if facebook_due():
         try:
             send_to_facebook(img, post)
-        except Exception as e:  # noqa: BLE001  (a Facebook problem must not break the Telegram run)
+            sent = True
+        except Exception as e:  # noqa: BLE001
             log("FACEBOOK ERROR:", e)
     else:
         log("facebook skipped this hour (not configured or not due)")
 
-    history.append(
-        {
-            "ts": datetime.now(timezone.utc).isoformat(timespec="minutes"),
-            "topic": post["topic"],
-            "source": post.get("source_title"),
-            "year": post.get("year"),
-            "country": post.get("country"),
-        }
-    )
-    save_history(history)
-    log("done")
+    if sent:
+        history.append(
+            {
+                "ts": datetime.now(timezone.utc).isoformat(timespec="minutes"),
+                "topic": post["topic"],
+                "source": post.get("source_title"),
+                "year": post.get("year"),
+                "country": post.get("country"),
+            }
+        )
+        save_history(history)
+        log("done")
+    else:
+        log("NOTHING WAS DELIVERED: check the Telegram and Facebook errors above")
 
 
 if __name__ == "__main__":
