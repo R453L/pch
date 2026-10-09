@@ -198,5 +198,12 @@
   "source": "Overend, Gurney and Company",
   "year": "1866",
   "country": "UK"
+ },
+ {
+  "ts": "2026-10-09T14:01+00:00",
+  "topic": "decimalisation",
+  "source": "Decimal Day",
+  "year": 1971,
+  "country": "United Kingdom and Ireland"
  }
 ]
