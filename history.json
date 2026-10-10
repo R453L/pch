@@ -247,5 +247,12 @@
   "source": "Revenue Act of 1932",
   "year": 1932,
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-10T04:02+00:00",
+  "topic": "Austro-Hungarian war bond child loan scheme",
+  "source": "War bond",
+  "year": 1915,
+  "country": "Austria-Hungary"
  }
 ]
