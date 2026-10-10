@@ -268,5 +268,12 @@
   "source": "Income tax in the United Kingdom",
   "year": "Second World War",
   "country": "United Kingdom"
+ },
+ {
+  "ts": "2026-10-10T06:02+00:00",
+  "topic": "tally stick",
+  "source": "Tally stick",
+  "year": "1826",
+  "country": "England"
  }
 ]
