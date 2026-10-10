@@ -27,7 +27,7 @@ def _models(name, default):
 
 
 # comma-separated lists: the first model is tried first, the next ones are fallbacks
-WRITER_MODELS = _models("WRITER_MODEL", "respan/span-01-lite,inclusionai/ling-3.1-flash")    # empty = automatic: best free models
+WRITER_MODELS = _models("WRITER_MODEL", "")    # empty = automatic: best free models
 CHECKER_MODELS = _models("CHECKER_MODEL", "")  # empty = automatic: a different free model family
 IMAGE_MODELS = _models("IMAGE_MODEL", "lykon/dreamshaper-8-lcm,flux")  # best first; the next ones are used if it fails
 PAGE_NAME = os.environ.get("PAGE_NAME", "Pocket Change History")
