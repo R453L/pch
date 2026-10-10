@@ -233,5 +233,12 @@
   "source": "London Stock Exchange",
   "year": "",
   "country": ""
+ },
+ {
+  "ts": "2026-10-10T00:03+00:00",
+  "topic": "United States Note",
+  "source": "United States Note",
+  "year": "1863",
+  "country": "United States"
  }
 ]
