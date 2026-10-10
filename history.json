@@ -240,5 +240,12 @@
   "source": "United States Note",
   "year": "1863",
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-10T02:01+00:00",
+  "topic": "United States tax history",
+  "source": "Revenue Act of 1932",
+  "year": 1932,
+  "country": "United States"
  }
 ]
