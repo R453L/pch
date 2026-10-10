@@ -140,25 +140,17 @@ HEADLINE RULES:
 - subhook: 3-6 words, ALL CAPS, a short teaser shown under the headline. It adds NO new fact (for example "THE TAX ROSE WITH HORSEPOWER").
 - The headline must be truthful and supported by the source.
 
-CAPTION RULES (viral storytelling written to a high SEO-style quality bar):
-- Length: 200-280 words. Natural American English, conversational, vivid, documentary.
-- Structure, 5 or 6 short paragraphs separated by blank lines:
-  1. HOOK + DIRECT ANSWER (first sentence under 120 characters, because Facebook cuts the post after about two lines): state the surprising fact with its number and year right away, or ask a sharp question and answer it in the next sentence. A skimmer who reads only this paragraph must still learn the core fact and want the rest.
-  2. SCENE: put the reader inside the period with concrete everyday details (what people saw, paid, earned, did).
-  3. TENSION: why this was a problem, a gamble or a strange rule. Keep the WHY and the TWIST for later paragraphs (the "what" is already out, the "why" creates the cliffhanger).
-  4. REVEAL: the surprising reason or twist, with exact year, country and numbers.
-  5. AFTERMATH: what changed afterwards and the real-world consequence.
-  6. CLOSER: one thought-provoking line linking to today, then ONE short question that invites comments.
-- INFORMATION GAIN: include at least one angle most posts on this topic skip (the hidden reason, an unexpected consequence, a surprising comparison). Do not write the generic version of the story.
-- STAT + SOURCE + IMPLICATION: include at least one sentence with a specific number or date, the kind of record it comes from, but only if the SOURCE TEXT mentions that record, and what it meant in practice. Never invent a statistic, quote or source; if unsure, drop the number.
-- ENTITIES: name as many specific real entities as the SOURCE TEXT provides (official names of laws, institutions, companies, places, currencies), at least 6 when available. No vague phrases like "a big bank" when the SOURCE TEXT gives the precise name. Never name an entity that is not in the SOURCE TEXT.
-- Optional "THEN vs NOW" line (for example "Then: ... Now: ...") only when both numbers appear in the SOURCE TEXT. Never convert old prices with inflation.
-- Short punchy sentences mixed with longer ones. Build suspense paragraph by paragraph so people read to the end. No keyword stuffing.
-- Do not repeat the headline word-for-word. No filler. No unsupported phrases like "Experts believe" or "Everyone used".
-- Write in your OWN words. Never copy six or more words in a row from the SOURCE TEXT. Retell every fact in fresh sentences.
-- The caption is exactly 5 or 6 paragraphs, each separated by a blank line (write \n\n inside the JSON string). The first sentence is at most 120 characters.
-- Mention nothing after {RECENT_CUTOFF} in the caption: no modern companies, no modern practices, no recent events.
-- Plain text only. NO em dashes (use commas, periods or colons), no emojis, no markdown, no hashtags inside the text.
+CAPTION RULES (write like a real person, not like an AI):
+- 150-260 words, plain American English, in the voice of ONE sharp, slightly opinionated history nerd telling a friend something that surprised him. The user message gives you a VOICE and a SHAPE: follow them and no other template.
+- Start with the surprising thing itself (a number, an odd detail, what people had to do). The first sentence is under 120 characters and holds the surprising fact. Never start with "Picture", "Imagine", "In a world", "Have you ever", or a date-and-place scene opener.
+- Mix very short sentences (2-6 words) with long winding ones (25+ words). Break the rhythm on purpose. Fragments are fine. Use contractions. One small aside is fine.
+- Use the odd, specific words of the SOURCE TEXT (names of things, trades, objects, places) instead of general words. Say what people actually paid, signed, carried, shouted.
+- Never write vague summary lines such as "marked a turning point", "played a crucial role", "paved the way", "ignited", "sparked a movement", "highlighting", "underscores", "a testament to". Never use the words: delve, tapestry, testament, realm, pivotal, crucial, moreover, furthermore, additionally, notably, ultimately; never write "it's worth noting", "in conclusion", "not just ... but", "Here's the thing", "Then versus now".
+- No lists of three adjectives or three parallel clauses. No moral, no summary, no lesson at the end.
+- 3 to 6 paragraphs of UNEVEN length, separated by a blank line (write \\n\\n inside the JSON string). One paragraph may be one short sentence.
+- Ending: ONE of these, never two: a blunt last line, a small joke, or one short question. Never two questions in the text.
+- Facts: keep every number, year and name exactly as in the SOURCE TEXT. Own words: never copy six words in a row from the SOURCE TEXT. Mention nothing after {RECENT_CUTOFF}.
+- Plain text only. No em dashes, no emojis, no markdown, no hashtags inside the text.
 
 TOPIC AGE RULE:
 - Only write about events that happened at least 30 years ago (nothing after {RECENT_CUTOFF}). Never write about living politicians, current governments, current policies or political debates, even if the SOURCE TEXT covers them. If the SOURCE TEXT is mostly about recent events, return {{"skip": true, "reason": "too recent"}}.
@@ -778,11 +770,28 @@ def verify_grounding(post, source):
     return problems
 
 
+VOICES = [
+    "dry and wry, with one deadpan aside",
+    "warm and curious, like a storyteller at a pub",
+    "blunt and matter-of-fact, with a little sarcasm",
+    "amused and a bit incredulous",
+    "calm and precise, with one vivid comparison",
+]
+SHAPES = [
+    "Open with the number or the oddest detail, then back up and explain how it came about, and end on a blunt line.",
+    "Open with what ordinary people had to do because of it, then reveal the rule or the price behind it, and end with one short question.",
+    "Open with a one-line claim most people would doubt, prove it in two short paragraphs, and end with a small joke.",
+    "Tell it as a quick chain of what happened next, every paragraph a different length, and end with no moral at all.",
+    "Open in the middle of the action, jump back to explain, and finish on a surprising consequence.",
+]
+
+
 def write_post(title, source, recent):
     system = WRITER_SYSTEM
     user = (
         f"SOURCE ARTICLE TITLE: {title}\n\nSOURCE TEXT:\n{source}\n\n"
         f"Do NOT repeat or closely resemble any of these recent topics: {json.dumps(recent)}\n"
+        f"VOICE for the caption: {random.choice(VOICES)}.\nSHAPE for the caption: {random.choice(SHAPES)}\n"
         "Write the post using ONLY the SOURCE TEXT. Return the JSON object now."
     )
     return chat_json(system, user, WRITER_MODELS, 0.7, tries=1, max_tokens=5000)
@@ -983,8 +992,8 @@ def check_originality(post, source):
     """Own words, story shape, nothing modern, cautious wording for percentages. Returns a problem text or None."""
     cap = post["caption"]
     paras = [x.strip() for x in re.split(r"\n+", cap) if x.strip()]
-    if len(paras) < 5:
-        return f"caption has {len(paras)} paragraphs, needs 5 or more"
+    if len(paras) < 3:
+        return f"caption has {len(paras)} paragraphs, needs 3 or more"
     post["caption"] = "\n\n".join(paras)
     first = re.split(r"(?<=[.?!])\s", paras[0], maxsplit=1)[0]
     if len(first) > 140:
@@ -1003,6 +1012,119 @@ def check_originality(post, source):
     if ("%" in head or re.search(r"\b\d+\s*(?:to|-)\s*\d+\b", head)) and not HEDGE_WORDS.search(cap):
         return "percentage or range in the headline, but the caption has no cautious wording"
     return None
+
+
+AI_MARKERS = re.compile(
+    r"\b(delve[sd]?|tapestry|testament|pivotal|crucial|moreover|furthermore|additionally|notably|ultimately|underscor\w+|paved the way|"
+    r"ignit\w+|spark(?:ed|s|ing) (?:a|an|the)|it'?s worth noting|in conclusion|then versus now|landscape of|realm of|"
+    r"play(?:s|ed) a (?:crucial|key|vital|significant) role|a turning point|serves as|stands as|here'?s the thing)\b", re.I)
+
+
+def _sentences(text):
+    return [x.strip() for x in re.split(r"(?<=[.!?])\s+", text.replace("\n", " ")) if x.strip()]
+
+
+def ai_likeness(text):
+    """Rough local meter (0 = very human, 100+ = very machine-like). Low variety, tidy rhythm and stock phrases raise it."""
+    sents = _sentences(text)
+    if len(sents) < 4:
+        return 50.0
+    lens = [len(x.split()) for x in sents]
+    mean = sum(lens) / len(lens)
+    sd = (sum((n - mean) ** 2 for n in lens) / len(lens)) ** 0.5
+    cv = sd / max(mean, 1)
+    short = sum(1 for n in lens if n <= 6) / len(lens)
+    long_ = sum(1 for n in lens if n >= 25) / len(lens)
+    starts = {}
+    for x in sents:
+        w = x.split()[0].lower()
+        starts[w] = starts.get(w, 0) + 1
+    score = max(0.0, 0.65 - cv) * 100
+    score += 15 if short < 0.10 else 0
+    score += 10 if long_ < 0.05 else 0
+    score += 10 if max(starts.values()) / len(sents) > 0.3 else 0
+    score += 8 * len(AI_MARKERS.findall(text))
+    score += 20 if re.match(r"\s*(picture|imagine)\b", text, re.I) else 0
+    score += 8 * max(0, text.count("?") - 1)
+    return score
+
+
+DEAI = [
+    (r"\bIt'?s worth noting that\s*", ""), (r"\bIn conclusion,\s*", ""), (r"\b(?:Moreover|Furthermore|Additionally),\s*", "Also, "),
+    (r"\bNotably,\s*", ""), (r"\bUltimately,\s*", ""), (r"\bdelve into\b", "dig into"), (r"\btestament to\b", "proof of"),
+    (r"\btapestry\b", "mix"), (r"\blandscape of\b", "world of"), (r"\brealm of\b", "world of"), (r"\bpivotal\b", "big"),
+    (r"\bcrucial\b", "big"), (r"\bpaved the way for\b", "led to"), (r"\bunderscores?\b", "shows"),
+]
+
+
+def deai(text):
+    """Deterministic clean-up: no 'Picture...' opener, no template lines, one question at most (the last), no stock phrases."""
+    text = re.sub(r"^\s*(?:Picture|Imagine)(?: this)?[:,]?\s+", "", text)
+    text = text[:1].upper() + text[1:] if text else text
+    for pat, rep_ in DEAI:
+        text = re.sub(pat, rep_, text, flags=re.I)
+    paras = [x.strip() for x in re.split(r"\n+", text) if x.strip()]
+    out = []
+    for i, para in enumerate(paras):
+        sents = _sentences(para)
+        keep = []
+        for j, x in enumerate(sents):
+            last = i == len(paras) - 1 and j == len(sents) - 1
+            if re.match(r"(Then versus now|Then:)", x, re.I):
+                continue
+            if x.endswith("?") and not last:
+                continue  # rhetorical questions in the middle read like a template
+            keep.append(x)
+        if keep:
+            out.append(" ".join(keep))
+    return "\n\n".join(out) if out else text
+
+
+HUMANIZE_SYSTEM = """You are an editor who makes machine-sounding text read like a real person wrote it, without changing a single fact.
+You get a CAPTION. Rewrite it so that it:
+- keeps every fact, number, year and name exactly; adds no new fact, number or name;
+- uses uneven sentence lengths (some under 6 words, some over 25), fragments, contractions and plain words;
+- sounds like one person with an opinion talking to a friend, not like a report or an encyclopedia;
+- has no summary, no moral and no lesson at the end; at most ONE question in the whole text, and only as the very last sentence;
+- never uses: Picture, Imagine, delve, tapestry, testament, pivotal, crucial, moreover, furthermore, additionally, notably, ultimately, underscore, "paved the way", "ignited", "sparked a", "It's worth noting", "Then versus now";
+- has 3 to 6 paragraphs of different lengths separated by a blank line (write \\n\\n inside the JSON string);
+- has a first sentence under 120 characters that holds the surprising fact;
+- stays between {lo} and {hi} words; no em dashes, no emojis, no hashtags.
+Return ONLY JSON: {{"caption": "..."}}"""
+
+
+def humanize_caption(post, source):
+    """Free and never blocking: if anything goes wrong the original caption (cleaned) is used."""
+    original = deai(post["caption"])
+    best, best_score = original, ai_likeness(original)
+    start_score = best_score
+    allowed = numbers_in(source, False)
+    try:
+        if best_score >= 18:
+            words = len(original.split())
+            system = HUMANIZE_SYSTEM.format(lo=max(110, int(words * 0.8)), hi=int(words * 1.15) + 20)
+            models = list(CHECKER_MODELS) or list(WRITER_MODELS)
+            for k in range(2):
+                order = models[k % max(len(models), 1):] + models[: k % max(len(models), 1)]
+                try:
+                    out = chat_json(system, f"CAPTION:\n{best if k else original}", order, 1.0, tries=1, max_tokens=2500)
+                except Exception as e:  # noqa: BLE001
+                    log("human-voice editor unavailable:", str(e)[:100])
+                    break
+                cand = deai(str(out.get("caption", "")).strip())
+                cand = re.sub(r"\s*[\u2014\u2013]\s*", ", ", cand)
+                if len(cand.split()) < max(70, int(0.6 * words)) or numbers_in(cand, True) - allowed:
+                    log("human-voice rewrite dropped (too short or it changed the numbers)")
+                    continue
+                sc = ai_likeness(cand)
+                if sc < best_score:
+                    best, best_score = cand, sc
+                if best_score < 18:
+                    break
+    except Exception as e:  # noqa: BLE001
+        log("human-voice step skipped:", e)
+    log(f"AI-likeness meter: {start_score:.0f} -> {best_score:.0f} (lower is more human)")
+    return best
 
 
 def emergency_post(title, source):
@@ -1068,6 +1190,7 @@ def build_post(recent, used):
                     pass
             else:
                 scrub_numbers(post, source, title)
+            post["caption"] = humanize_caption(post, source)
             post["source_title"] = title
             post["confidence"] = f"level {level}"
             post["sources"] = [f"Wikipedia: {title}"]
