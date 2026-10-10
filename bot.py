@@ -29,7 +29,7 @@ def _models(name, default):
 # comma-separated lists: the first model is tried first, the next ones are fallbacks
 WRITER_MODELS = _models("WRITER_MODEL", "")    # empty = automatic: best free models
 CHECKER_MODELS = _models("CHECKER_MODEL", "")  # empty = automatic: a different free model family
-IMAGE_MODELS = _models("IMAGE_MODEL", "flux,lykon/dreamshaper-8-lcm")  # best first; the next ones are used if it fails
+IMAGE_MODELS = _models("IMAGE_MODEL", "lykon/dreamshaper-8-lcm,flux")  # best first; the next ones are used if it fails
 PAGE_NAME = os.environ.get("PAGE_NAME", "Pocket Change History")
 SEND_NOTES = os.environ.get("SEND_NOTES", "0") == "1"
 WATERMARK = os.environ.get("WATERMARK", "AI-generated illustration")
