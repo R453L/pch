@@ -282,5 +282,12 @@
   "source": "Mississippi Company",
   "year": "1720",
   "country": "France"
+ },
+ {
+  "ts": "2026-10-10T12:06+00:00",
+  "topic": "layaway",
+  "source": "Layaway",
+  "year": "2006",
+  "country": "United States"
  }
 ]
